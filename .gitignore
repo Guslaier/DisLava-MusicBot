@@ -23,7 +23,6 @@ node_modules/
 
 # Lavalink
 LavalinkServer/logs
-LavalinkServer/logs/spring.log
 LavalinkServer/*.jar
 LavalinkServer/plugins/
 
