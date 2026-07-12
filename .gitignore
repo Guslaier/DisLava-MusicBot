@@ -22,7 +22,7 @@ node_modules/
 .env.production.local
 
 # Lavalink
-LavalinkServer/logs/
+LavalinkServer/logs
 LavalinkServer/logs/spring.log
 LavalinkServer/*.jar
 LavalinkServer/plugins/
