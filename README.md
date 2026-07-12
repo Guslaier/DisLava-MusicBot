@@ -61,3 +61,4 @@ node index.js
 **💡 คำแนะนำเพิ่มเติม:** 
 หากคุณต้องการนำบอทขึ้นโฮสต์หรือ Server จริง แนะนำให้เข้าไปแก้ไขรหัสผ่านใน `LavalinkServer/application.yml` และไปแก้รหัสผ่านของ Node ใน `index.js` ให้ตรงกัน เพื่อป้องกันผู้อื่นแอบใช้งาน Lavalink ของคุณ
 # BotDisLava
+# BotDisLava
