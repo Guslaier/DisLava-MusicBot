@@ -13,8 +13,8 @@ const client = new Client({
 // ตั้งค่าเชื่อมต่อ Lavalink Server ที่รันอยู่บนเครื่อง
 const Nodes = [{
     name: 'LocalNode',
-    url: 'localhost:2333',
-    auth: 'youshallnotpass',
+    url: `${process.env.LAVALINK_HOST || 'localhost'}:${process.env.LAVALINK_PORT || '2333'}`,
+    auth: process.env.LAVALINK_PASSWORD || 'youshallnotpass',
     secure: false
 }];
 
@@ -37,17 +37,17 @@ kazagumo.on("playerStart", (player, track) => {
 
     const embed = new EmbedBuilder()
         .setColor('#3498db')
-        .setTitle('Now Playing (Powered by Lavalink 🚀)')
+        .setTitle('Now Playing')
         .setDescription(`**${track.title}**\n\nRequested by: <@${track.requester.id}>`);
-    
-    channel.send({ embeds: [embed] }).catch(() => {});
+
+    channel.send({ embeds: [embed] }).catch(() => { });
 });
 
 // Event เมื่อคิวหมด
 kazagumo.on("playerEmpty", player => {
     if (!player.textId) return;
     const channel = client.channels.cache.get(player.textId);
-    if (channel) channel.send('🎵 คิวเพลงว่างเปล่าแล้วครับ!').catch(() => {});
+    if (channel) channel.send('🎵 คิวเพลงว่างเปล่าแล้วครับ!').catch(() => { });
     player.destroy();
 });
 
@@ -155,13 +155,13 @@ client.on('interactionCreate', async interaction => {
             });
         }
 
-        let result = await kazagumo.search(query, { 
+        let result = await kazagumo.search(query, {
             requester: interaction.user,
-            engine: query.startsWith('http') ? undefined : 'youtube_music' 
+            engine: query.startsWith('http') ? undefined : 'youtube_music'
         });
-        
+
         if (!result.tracks.length && !query.startsWith('http')) {
-            result = await kazagumo.search(query, { 
+            result = await kazagumo.search(query, {
                 requester: interaction.user,
                 engine: 'soundcloud'
             });
@@ -181,7 +181,7 @@ client.on('interactionCreate', async interaction => {
             await interaction.followUp({ embeds: [embed] });
         } else {
             const track = result.tracks[0];
-            
+
             if (top && player.queue.length > 0) {
                 player.queue.unshift(track);
             } else {
@@ -191,7 +191,7 @@ client.on('interactionCreate', async interaction => {
             const embed = new EmbedBuilder()
                 .setColor('#2b2d31')
                 .setDescription(`**${track.title}**\n\n${player.playing ? (top ? `⬆️ แทรกเป็นคิวต่อไปแล้ว` : `✅ เพิ่มลงในคิวแล้ว`) : `▶️ เริ่มเล่นเพลงแล้ว`}`);
-            
+
             await interaction.followUp({ embeds: [embed] });
         }
 
@@ -234,13 +234,13 @@ client.on('interactionCreate', async interaction => {
             });
         }
 
-        let result = await kazagumo.search(query, { 
+        let result = await kazagumo.search(query, {
             requester: interaction.user,
-            engine: query.startsWith('http') ? undefined : 'youtube_music' 
+            engine: query.startsWith('http') ? undefined : 'youtube_music'
         });
-        
+
         if (!result.tracks.length && !query.startsWith('http')) {
-            result = await kazagumo.search(query, { 
+            result = await kazagumo.search(query, {
                 requester: interaction.user,
                 engine: 'soundcloud'
             });
@@ -261,11 +261,11 @@ client.on('interactionCreate', async interaction => {
         } else {
             const track = result.tracks[0];
             player.queue.unshift(track);
-            
+
             const embed = new EmbedBuilder()
                 .setColor('#e74c3c')
                 .setDescription(`**${track.title}**\n\n⏭️ ข้ามเพลงปัจจุบันและแทรกเล่นเพลงนี้ทันที!`);
-            
+
             await interaction.followUp({ embeds: [embed] });
         }
 
@@ -288,7 +288,7 @@ client.on('interactionCreate', async interaction => {
         const limit = 10;
         const totalPages = Math.ceil(tracks.length / limit) || 1;
         let page = interaction.options.getInteger('page') || 1;
-        
+
         if (page < 1) page = 1;
         if (page > totalPages) page = totalPages;
 
@@ -325,7 +325,7 @@ client.on('interactionCreate', async interaction => {
         };
 
         const embed = generateEmbed(page);
-        
+
         if (totalPages <= 1) {
             return interaction.reply({ embeds: [embed] });
         }
@@ -341,7 +341,7 @@ client.on('interactionCreate', async interaction => {
         collector.on('collect', async i => {
             if (i.customId === 'gqueue_prev') page--;
             if (i.customId === 'gqueue_next') page++;
-            
+
             await i.update({
                 embeds: [generateEmbed(page)],
                 components: [generateRow(page)]
@@ -349,7 +349,7 @@ client.on('interactionCreate', async interaction => {
         });
 
         collector.on('end', () => {
-            replyMessage.edit({ components: [] }).catch(() => {});
+            replyMessage.edit({ components: [] }).catch(() => { });
         });
         return;
     }
