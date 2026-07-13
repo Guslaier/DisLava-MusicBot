@@ -10,107 +10,107 @@
 
 <br />
 
-**DisLava-MusicBot** คือ Discord Music Bot แบบ Open Source ที่ทำงานร่วมกับ **Lavalink, Shoukaku และ Kazagumo** ระบบบอทถูกออกแบบมาเพื่อรองรับการค้นหาและเล่นเพลงจาก **YouTube โดยเฉพาะ** ป้องกันปัญหาเพลงไม่ตรงปก พร้อมระบบจัดการคิวและการออกแบบ UI (Embed) โทนสี Hot Pink ที่สบายตา
+**DisLava-MusicBot** is an Open Source Discord Music Bot integrated with **Lavalink, Shoukaku, and Kazagumo**. The bot is designed to search and play music strictly from **YouTube** to ensure accurate track results. It features an advanced queue management system and a visually pleasing Hot Pink UI (Embed) design.
 
-> **หมายเหตุสำหรับผู้ใช้งานทั่วไป:** โปรเจกต์นี้เป็น Open Source ที่ออกแบบมาเพื่อให้ทุกคนนำไปติดตั้งและรันบนเซิร์ฟเวอร์ของตัวเอง (Self-hosted) ไม่ได้เปิดให้บริการเช่าหรือบอทสาธารณะ เพื่อหลีกเลี่ยงการละเมิดข้อตกลง (ToS) ของบริการสตรีมมิ่ง
-
----
-
-## คุณสมบัติหลัก (Features)
-- **ค้นหาจาก YouTube เท่านั้น**: บังคับดึงข้อมูลจาก YouTube เป็นหลักเพื่อป้องกันปัญหาเพลงไม่ตรงปก
-- **ระบบคิวขั้นสูง**: รองรับการแทรกคิว (`/gplay top`), ดันคิว (`/gjump`) และ ข้ามแล้วเล่นทันที (`/gskipplay`)
-- **ควบคุมการเล่นแบบครบวงจร**: หยุดชั่วคราว, เล่นต่อ, กรอเพลง, ปรับระดับเสียง, วนลูป, สุ่มคิว
-- **อัปเดตคำสั่งได้ทันที**: แอดมินสามารถใช้ `/gupdate` เพื่อรีโหลดคำสั่งใหม่ได้โดยไม่ต้องรีสตาร์ทบอท
-- **ดีไซน์ที่ชัดเจน**: ข้อความแจ้งเตือนทั้งหมดใช้ EmbedBuilder สี Hot Pink (`#FF69B4`) เพื่อความสวยงามและอ่านง่าย
+> **Note for general users:** This project is Open Source and designed to be self-hosted on your own servers. It is not provided as a public or commercial bot to comply with streaming service Terms of Service (ToS).
 
 ---
 
-## สิ่งที่ต้องมี (Prerequisites)
-ก่อนเริ่มการติดตั้ง กรุณาตรวจสอบว่ามีโปรแกรมเหล่านี้ติดตั้งอยู่ในระบบ:
-- [Node.js](https://nodejs.org/) (เวอร์ชัน 16.11.0 ขึ้นไป สำหรับรัน Discord.js v14)
-- [Java 17](https://www.oracle.com/java/technologies/javase/jdk17-archive-downloads.html) หรือสูงกว่า (สำหรับรัน Lavalink Server)
-- [PM2](https://pm2.keymetrics.io/) สำหรับรันบอทและ Lavalink ให้ออนไลน์ตลอดเวลา (`npm install pm2 -g`)
-- Token ของ Discord Bot (สมัครและรับ Token ได้ที่ [Discord Developer Portal](https://discord.com/developers/applications))
+## Features
+- **YouTube Only Search**: Strictly fetches data from YouTube to prevent mismatched songs.
+- **Advanced Queue System**: Supports queue insertion (`/gplay top`), queue jumping (`/gjump`), and skip-play (`/gskipplay`).
+- **Full Playback Control**: Pause, resume, seek, volume control, loop, and shuffle.
+- **Hot-Reload Commands**: Admins can use `/gupdate` to reload all commands instantly without restarting the bot.
+- **Clean Design**: All alerts and messages use a Hot Pink (`#FF69B4`) EmbedBuilder for a clean and readable aesthetic.
 
 ---
 
-## การติดตั้งและการตั้งค่า (Installation & Setup)
+## Prerequisites
+Before installation, ensure you have the following installed on your system:
+- [Node.js](https://nodejs.org/) (Version 16.11.0 or higher for Discord.js v14)
+- [Java 17](https://www.oracle.com/java/technologies/javase/jdk17-archive-downloads.html) or higher (Required for Lavalink Server)
+- [PM2](https://pm2.keymetrics.io/) to keep the bot and Lavalink running 24/7 (`npm install pm2 -g`)
+- Discord Bot Token (Create one at the [Discord Developer Portal](https://discord.com/developers/applications))
 
-1. **โคลนโปรเจกต์และติดตั้งแพ็กเกจ**
+---
+
+## Installation & Setup
+
+1. **Clone the repository and install dependencies**
    ```bash
-   git clone https://github.com/....
+   git clone https://github.com/Guslaier/DisLava-MusicBot.git
    cd DisLava-MusicBot
    npm install
    ```
 
-2. **การตั้งค่า Environment Variables**
-   - คัดลอกหรือเปลี่ยนชื่อไฟล์ `.env.example` เป็น `.env`
-   - ระบุ Token บอทของคุณลงในไฟล์ `.env`
+2. **Environment Variables Configuration**
+   - Copy or rename `.env.example` to `.env`
+   - Insert your bot token inside the `.env` file
      ```env
      DISCORD_TOKEN=your_discord_bot_token_here
      ```
 
-3. **การเตรียม Lavalink Server**
-   - ดาวน์โหลด `Lavalink.jar` (เวอร์ชัน 4.0.0 ขึ้นไป) จาก [Lavalink Releases](https://github.com/lavalink-devs/Lavalink/releases)
-   - นำไฟล์ที่ดาวน์โหลดมาวางในโฟลเดอร์ `LavalinkServer`
-   - *หมายเหตุ: สำหรับปลั๊กอินเล่นเพลง YouTube ระบบ Lavalink จะทำการดาวน์โหลดและติดตั้งให้เองโดยอัตโนมัติในโฟลเดอร์ `plugins` เมื่อรันเซิร์ฟเวอร์ครั้งแรก (ตั้งค่าไว้แล้วใน `application.yml`)*
+3. **Lavalink Server Setup**
+   - Download `Lavalink.jar` (Version 4.0.0 or higher) from [Lavalink Releases](https://github.com/lavalink-devs/Lavalink/releases)
+   - Place the downloaded file into the `LavalinkServer` folder
+   - *Note: The YouTube music plugin will be automatically downloaded and installed into the `plugins` folder by Lavalink upon its first run (configured in `application.yml`).*
 
 ---
 
-## วิธีการใช้งาน (Usage)
+## Usage
 
-จำเป็นต้องรัน 2 ส่วนควบคู่กัน คือ Lavalink Server และ ตัวบอท
+You need to run two processes simultaneously: Lavalink Server and the Discord Bot.
 
-### 1. การรัน Lavalink Server (ใช้ PM2)
+### 1. Running Lavalink Server (using PM2)
 ```bash
 cd LavalinkServer
 pm2 start "java -jar Lavalink.jar" --name LAVALINK
 cd ..
 ```
 
-### 2. การรัน Discord Bot (ใช้ PM2)
+### 2. Running the Discord Bot (using PM2)
 ```bash
 pm2 start index.js --name BOT_LAVA
 ```
-*คุณสามารถเช็คสถานะการรันและ log ได้ผ่านคำสั่ง `pm2 list`, `pm2 monit` และ `pm2 log`*
+*You can check the running status and logs via `pm2 list`, `pm2 monit`, and `pm2 log`.*
 
 ---
 
-## คำสั่งทั้งหมด (Slash Commands)
+## Slash Commands
 
-### หมวดเล่นเพลง (Basic)
-- `/gplay <query> [top]` - ค้นหาและเล่นเพลงจากชื่อหรือลิงก์ (เปิด `top` เพื่อลัดคิวให้เล่นเป็นเพลงต่อไป)
-- `/gpause` - หยุดเล่นเพลงชั่วคราว
-- `/gresume` - เล่นเพลงต่อจากที่หยุดไว้
-- `/gstop` - หยุดเล่นเพลงและล้างคิวทั้งหมด ปิดสเตจ
+### Basic Playback
+- `/gplay <query> [top]` - Search and play a song by name or URL (set `top` to play it next)
+- `/gpause` - Pause the current playback
+- `/gresume` - Resume the paused playback
+- `/gstop` - Stop the music, clear the queue, and disconnect from the voice channel
 
-### หมวดจัดการคิว (Queue Control)
-- `/gqueue` - แสดงรายชื่อคิวเพลงทั้งหมดที่รอเล่น
-- `/gskip` - ข้ามเพลงที่กำลังเล่นอยู่
-- `/gskipplay <query>` - เล่นเพลงนี้ทันที (ข้ามเพลงปัจจุบันและแทรกคิว)
-- `/gprevious` - ย้อนกลับไปเล่นเพลงที่เพิ่งจบไป
-- `/gshuffle` - สุ่มลำดับคิวเพลง
-- `/gloop <mode>` - วนลูปเพลง (ปิด / เพลงเดียว / ทั้งคิว)
-- `/gclear` - ลบเพลงที่รออยู่ในคิวทั้งหมด
+### Queue Control
+- `/gqueue` - Display the current music queue
+- `/gskip` - Skip the currently playing song
+- `/gskipplay <query>` - Play this song immediately (skips current song and inserts into queue)
+- `/gprevious` - Play the previously played song
+- `/gshuffle` - Shuffle the music queue
+- `/gloop <mode>` - Toggle loop mode (Off / Single Track / Entire Queue)
+- `/gclear` - Clear all pending songs in the queue
 
-### หมวดปรับแต่งขั้นสูง (Advanced)
-- `/gseek <time>` - กรอเพลงไปยังเวลาที่กำหนด (เช่น 01:30 หรือ 90)
-- `/gjump <position>` - ดันเพลงที่ระบุในคิวขึ้นมาเป็นเพลงถัดไป (แซงคิว)
-- `/gremove <position>` - ลบเพลงออกจากคิวตามตำแหน่ง
+### Advanced Options
+- `/gseek <time>` - Seek to a specific timestamp in the current song (e.g., 01:30 or 90)
+- `/gjump <position>` - Jump a specific song in the queue to be played next
+- `/gremove <position>` - Remove a specific song from the queue by its position
 
-### หมวดข้อมูล (Info)
-- `/gnowplaying` - ดูข้อมูลเพลงที่กำลังเล่น พร้อมแถบเวลา
-- `/glyrics` - ค้นหาเนื้อเพลงที่กำลังเล่นอยู่
-- `/ghelp` - ดูคู่มือและคำสั่งทั้งหมดของบอท
+### Information
+- `/gnowplaying` - Show details of the currently playing song with a progress bar
+- `/glyrics` - Search for lyrics of the currently playing song
+- `/ghelp` - View the bot's manual and all available commands
 
-### หมวดผู้ดูแลระบบ (Admin Only)
-- `/gvolume <amount>` - ปรับระดับเสียง (0-150%)
-- `/gupdate` - (เฉพาะ Admin) รีโหลดไฟล์คำสั่งทั้งหมดและอัปเดต Slash Commands ใหม่โดยไม่ต้องรีสตาร์ทบอท
+### Admin Only
+- `/gvolume <amount>` - Adjust the bot's volume (0-150%)
+- `/gupdate` - (Admin only) Reload all command files and update Slash Commands without restarting the bot
 
 ---
 
-## การมีส่วนร่วม (Contributing)
-ยินดีต้อนรับนักพัฒนาทุกท่านที่ต้องการเข้ามาร่วมพัฒนา DisLava-MusicBot หากคุณพบเจอบัค หรือมีฟีเจอร์ใหม่ๆ ที่น่าสนใจ สามารถเปิด **Issues** หรือส่ง **Pull Requests** เข้ามาได้เลย
+## Contributing
+All developers are welcome to contribute to DisLava-MusicBot. If you find any bugs or have interesting feature requests, feel free to open **Issues** or submit **Pull Requests**.
 
-## ลิขสิทธิ์ (License)
-โปรเจกต์นี้เป็น Open Source ภายใต้สัญญาอนุญาต [MIT License](LICENSE) - คุณสามารถนำไปใช้งาน ดัดแปลง และเผยแพร่ต่อได้อย่างอิสระ
+## License
+This project is Open Source and licensed under the [MIT License](LICENSE) - You are free to use, modify, and distribute it.
