@@ -1,5 +1,5 @@
 {
-  "name": "botdislava",
+  "name": "dislava-musicbot",
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
@@ -13,6 +13,7 @@
     "discord.js": "^14.26.5",
     "dotenv": "^17.4.2",
     "kazagumo": "^3.4.3",
+    "lyrics-finder": "^21.7.0",
     "shoukaku": "^4.3.0"
   }
 }

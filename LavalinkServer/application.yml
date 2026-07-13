@@ -15,13 +15,13 @@ lavalink:
       vimeo: true
       http: true
       local: false
-    bufferDurationMs: 2000
+    bufferDurationMs: 8500
     frameBufferDurationMs: 5000
-    opusEncodingQuality: 5
-    resamplingQuality: LOW
+    opusEncodingQuality: 4
+    resamplingQuality: MEDIUM
     trackStuckThresholdMs: 10000
     useSeekGhosting: true
-    youtubePlaylistLoadLimit: 6
+    youtubePlaylistLoadLimit: 3
     playerUpdateInterval: 5
     youtubeSearchEnabled: true
     soundcloudSearchEnabled: true
