@@ -51,8 +51,9 @@
      ```
 
 3. **การเตรียม Lavalink Server**
-   - ดาวน์โหลด `Lavalink.jar` จาก [Lavalink Releases](https://github.com/lavalink-devs/Lavalink/releases) (แนะนำให้ใช้เวอร์ชันที่รองรับกับ Plugins ใน `application.yml` ของคุณ)
+   - ดาวน์โหลด `Lavalink.jar` (เวอร์ชัน 4.0.0 ขึ้นไป) จาก [Lavalink Releases](https://github.com/lavalink-devs/Lavalink/releases)
    - นำไฟล์ที่ดาวน์โหลดมาวางในโฟลเดอร์ `LavalinkServer`
+   - *หมายเหตุ: สำหรับปลั๊กอินเล่นเพลง YouTube ระบบ Lavalink จะทำการดาวน์โหลดและติดตั้งให้เองโดยอัตโนมัติในโฟลเดอร์ `plugins` เมื่อรันเซิร์ฟเวอร์ครั้งแรก (ตั้งค่าไว้แล้วใน `application.yml`)*
 
 ---
 
