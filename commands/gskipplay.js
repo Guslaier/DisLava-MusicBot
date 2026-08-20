@@ -95,6 +95,7 @@ module.exports = {
                     }
                 } // ปิด if (query.includes('list='))
 
+                const fetch = (await import('node-fetch')).default;
                 const response = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(query)}&format=json`);
                 if (response.ok) {
                     const data = await response.json();
@@ -104,6 +105,7 @@ module.exports = {
                     return interaction.followUp({ embeds: [embed] });
                 }
             } catch (e) {
+                console.error("YouTube oEmbed Error:", e);
                 embed.setDescription('❌ ไม่สามารถดึงข้อมูลจากลิ้งก์ YouTube ได้ค่ะ ลองพิมพ์ชื่อเพลงแทนนะคะ 🥺');
                 return interaction.followUp({ embeds: [embed] });
             }
