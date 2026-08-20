@@ -17,8 +17,8 @@ lavalink:
       local: false
     bufferDurationMs: 8500 # ปรับกลับเป็น 8.5 วิ เพื่อให้เพลงเริ่มเล่นเร็วขึ้น
     frameBufferDurationMs: 5000 # ปรับกลับเป็น 5 วิ
-    opusEncodingQuality: 10 # เพิ่มคุณภาพเสียง
-    resamplingQuality: HIGH # ปรับให้เสียงเนียนขึ้น
+    opusEncodingQuality: 5 # เพิ่มคุณภาพเสียง
+    resamplingQuality: MEDIUM # ปรับให้เสียงเนียนขึ้น
     trackStuckThresholdMs: 15000
     useSeekGhosting: true
     youtubePlaylistLoadLimit: 3
