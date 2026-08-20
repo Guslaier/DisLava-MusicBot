@@ -3,7 +3,7 @@ server: # REST and WS server
   address: 0.0.0.0
 lavalink:
   plugins:
-    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.1"
+    - dependency: "dev.lavalink.youtube:youtube-plugin:1.18.2"
       repository: "https://maven.lavalink.dev/releases"
   server:
     password: ${LAVALINK_PASSWORD:youshallnotpass}
@@ -15,11 +15,11 @@ lavalink:
       vimeo: true
       http: true
       local: false
-    bufferDurationMs: 8500
-    frameBufferDurationMs: 5000
-    opusEncodingQuality: 4
-    resamplingQuality: MEDIUM
-    trackStuckThresholdMs: 10000
+    bufferDurationMs: 8500 # ปรับกลับเป็น 8.5 วิ เพื่อให้เพลงเริ่มเล่นเร็วขึ้น
+    frameBufferDurationMs: 5000 # ปรับกลับเป็น 5 วิ
+    opusEncodingQuality: 10 # เพิ่มคุณภาพเสียง
+    resamplingQuality: HIGH # ปรับให้เสียงเนียนขึ้น
+    trackStuckThresholdMs: 15000
     useSeekGhosting: true
     youtubePlaylistLoadLimit: 3
     playerUpdateInterval: 5

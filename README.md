@@ -10,14 +10,16 @@
 
 <br />
 
-**DisLava-MusicBot** is an Open Source Discord Music Bot integrated with **Lavalink, Shoukaku, and Kazagumo**. The bot is designed to search and play music strictly from **YouTube** to ensure accurate track results. It features an advanced queue management system and a visually pleasing Hot Pink UI (Embed) design.
+**DisLava-MusicBot** is an Open Source Discord Music Bot integrated with **Lavalink, Shoukaku, and Kazagumo**. Designed to bypass YouTube's strict bot blocking, it features a smart link parser that allows users to paste YouTube Links and Playlists seamlessly by intelligently routing the audio through **SoundCloud**. It includes an advanced queue management system and a visually pleasing Hot Pink UI (Embed) design.
 
 > **Note for general users:** This project is Open Source and designed to be self-hosted on your own servers. It is not provided as a public or commercial bot to comply with streaming service Terms of Service (ToS).
 
 ---
 
 ## Features
-- **YouTube Only Search**: Strictly fetches data from YouTube to prevent mismatched songs.
+- **Smart YouTube Bypass**: Since Lavalink often blocks YouTube directly, the bot intelligently parses YouTube Links and Playlists (via oEmbed and `youtube-sr`) and automatically fetches the exact tracks from **SoundCloud** behind the scenes.
+- **YouTube Playlist Support**: Paste any YouTube playlist link, and the bot will smoothly queue up to 30 songs asynchronously without stuttering or blocking the audio stream.
+- **Auto Title Cleaner**: Strips unnecessary tags (like `[Official MV]`, `(Audio)`) from video titles to guarantee a high match rate when falling back to SoundCloud searches.
 - **Advanced Queue System**: Supports queue insertion (`/gplay top`), queue jumping (`/gjump`), and skip-play (`/gskipplay`).
 - **Full Playback Control**: Pause, resume, seek, volume control, loop, and shuffle.
 - **Hot-Reload Commands**: Admins can use `/gupdate` to reload all commands instantly without restarting the bot.
