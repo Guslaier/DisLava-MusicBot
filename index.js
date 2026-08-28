@@ -2,8 +2,8 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const { Client, GatewayIntentBits, Collection, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
-const { Connectors } = require('shoukaku');
-const { Kazagumo, KazagumoPlayer } = require('kazagumo');
+const QueueManager = require('./src/QueueManager');
+const cacheManager = require('./src/CacheManager');
 
 const client = new Client({
     intents: [
@@ -29,24 +29,8 @@ for (const file of commandFiles) {
 }
 
 
-// ตั้งค่าเชื่อมต่อ Lavalink Server ที่รันอยู่บนเครื่อง
-const Nodes = [{
-    name: 'LocalNode',
-    url: `${process.env.LAVALINK_HOST || 'localhost'}:${process.env.LAVALINK_PORT || '2333'}`,
-    auth: process.env.LAVALINK_PASSWORD || 'youshallnotpass',
-    secure: false
-}];
-
-const kazagumo = new Kazagumo({
-    defaultSearchEngine: "soundcloud",
-    send: (guildId, payload) => {
-        const guild = client.guilds.cache.get(guildId);
-        if (guild) guild.shard.send(payload);
-    }
-}, new Connectors.DiscordJS(client), Nodes);
-
-kazagumo.shoukaku.on('ready', (name) => console.log(`✅ Lavalink Node: ${name} is now connected`));
-kazagumo.shoukaku.on('error', (name, error) => console.error(`❌ Lavalink Node: ${name} error:`, error));
+// สร้าง Audio Engine และ QueueManager
+const kazagumo = new QueueManager(client);
 
 // Event เมื่อเริ่มเล่นเพลง
 kazagumo.on("playerStart", (player, track) => {
@@ -60,6 +44,21 @@ kazagumo.on("playerStart", (player, track) => {
         .setDescription(`**${track.title}**\n\nRequested by: <@${track.requester.id}>`);
 
     channel.send({ embeds: [embed] }).catch(() => { });
+});
+
+// Event เมื่อเพลงติดขัด
+kazagumo.on("playerStuck", (player, track, threshold) => {
+    console.warn(`⚠️ Player stuck on track: ${track.title} (threshold: ${threshold}ms)`);
+});
+
+// Event เมื่อเกิดข้อผิดพลาดในการเล่นเพลง
+kazagumo.on("playerException", (player, track, exception) => {
+    console.error(`❌ Player exception on track: ${track?.title}:`, JSON.stringify(exception || exception?.message || {}));
+});
+
+// Event เมื่อเพลงจบ
+kazagumo.on("playerEnd", (player, track) => {
+    console.log(`ℹ️ Player ended track: ${track.title}`);
 });
 
 // Event เมื่อคิวหมด
@@ -76,7 +75,11 @@ kazagumo.on("playerEmpty", player => {
 });
 
 client.on('ready', async () => {
-    console.log(`✅ Logged in as ${client.user.tag} (Lavalink Version)!`);
+    console.log(`✅ Logged in as ${client.user.tag} (yt-dlp Version)!`);
+
+    // Cache cleanup: run once at startup, then hourly sweep (files older than 24h)
+    cacheManager.cleanOldCache(24);
+    setInterval(() => cacheManager.cleanOldCache(24), 60 * 60 * 1000).unref();
 
     try {
         await client.application.commands.set(commandsData);
@@ -86,12 +89,27 @@ client.on('ready', async () => {
     }
 });
 
+client.on('guildDelete', guild => {
+    console.log(`[GuildLeave] Bot removed from guild: ${guild.name} (${guild.id})`);
+});
+
+client.on('guildUnavailable', guild => {
+    console.warn(`[GuildUnavailable] Guild is unavailable: ${guild.name} (${guild.id})`);
+});
+
 client.on('interactionCreate', async interaction => {
     if (!interaction.isChatInputCommand()) return;
+    if (!interaction.inGuild()) {
+        return interaction.reply({
+            embeds: [new EmbedBuilder().setColor('#FF69B4').setDescription('❌ อ๊ะๆ! ใช้ได้เฉพาะในเซิร์ฟเวอร์เท่านั้นนะคะที่รัก 💕')],
+            ephemeral: true
+        });
+    }
     if (!interaction.guild) {
-        return interaction.reply({ 
-            embeds: [new EmbedBuilder().setColor('#FF69B4').setDescription('❌ อ๊ะๆ! ใช้ได้เฉพาะในเซิร์ฟเวอร์เท่านั้นนะคะที่รัก 💕')], 
-            ephemeral: true 
+        console.error(`[GuildCache] Bot is not in guild ${interaction.guildId} — interaction received from guild the bot has left or cannot access.`);
+        return interaction.reply({
+            embeds: [new EmbedBuilder().setColor('#FF69B4').setDescription('❌ บอทไม่อยู่ในเซิร์ฟเวอร์นี้แล้วค่ะ กรุณาเชิญบอทใหม่ด้วยนะคะ 🥺')],
+            ephemeral: true
         });
     }
 
@@ -114,6 +132,29 @@ client.on('interactionCreate', async interaction => {
             await interaction.followUp({ embeds: [errorEmbed], ephemeral: true });
         } else {
             await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+        }
+    }
+});
+
+// Auto-disconnect when no non-bot members remain in the bot's voice channel
+client.on('voiceStateUpdate', (oldState, newState) => {
+    // Ignore the bot's own state changes (handled by Player.js Disconnected logic)
+    if (oldState.member?.user.bot) return;
+
+    const player = kazagumo.getPlayer(oldState.guild.id);
+    if (!player || !player.voiceId) return;
+
+    // Check both old and new channel to cover members switching channels
+    const channelIds = [oldState.channelId, newState.channelId]
+        .filter((id, index, arr) => id === player.voiceId && arr.indexOf(id) === index);
+
+    for (const channelId of channelIds) {
+        const channel = oldState.guild.channels.cache.get(channelId);
+        if (!channel) continue;
+        const nonBotMembers = channel.members.filter(m => !m.user.bot);
+        if (nonBotMembers.size === 0) {
+            player.destroy();
+            break;
         }
     }
 });
