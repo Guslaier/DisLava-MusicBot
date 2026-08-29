@@ -21,11 +21,6 @@ node_modules/
 .env.test.local
 .env.production.local
 
-# Lavalink
-LavalinkServer/logs
-LavalinkServer/*.jar
-LavalinkServer/plugins/
-
 # OS generated files
 .DS_Store
 .DS_Store?
@@ -34,3 +29,4 @@ LavalinkServer/plugins/
 .Trashes
 ehthumbs.db
 Thumbs.db
+music_cache
