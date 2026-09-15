@@ -236,13 +236,14 @@ async function runStartupCheck() {
             const exec = require('util').promisify(require('child_process').exec);
             if (fs.existsSync(ytDlpPath)) {
                 const proxyArg = process.env.PROXY_URL ? `--proxy "${process.env.PROXY_URL}" ` : "";
-                await exec(`"${ytDlpPath}" ${proxyArg}--cookies "${cookiesPath}" --simulate --get-title "https://www.youtube.com/watch?v=jNQXAC9IVRw"`, { timeout: 15000 });
+                await exec(`"${ytDlpPath}" ${proxyArg}--cookies "${cookiesPath}" --simulate --get-title "https://www.youtube.com/watch?v=jNQXAC9IVRw"`, { timeout: 60000 });
                 console.log('✅ Auth is VALID!');
             } else {
                 console.log('⚠️ Skipped (yt-dlp missing)');
             }
         } catch (err) {
             console.log('\n❌ [Cookies] Auth is INVALID or YouTube blocked the request! (YouTube playback will fail)');
+            if (err.killed) console.log('   -> Note: The check timed out. Proxy might be too slow.');
         }
     } else {
         console.log('⚠️ [Cookies] cookies.txt is MISSING! (YouTube playback might fail with "Sign in" error)');
