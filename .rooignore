@@ -1,7 +1,0 @@
-node_modules/
-dist/
-build/
-.git/
-*.log
-*.min.js
-*.sqlite
