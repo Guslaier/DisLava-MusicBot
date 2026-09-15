@@ -26,6 +26,8 @@ It features local audio caching, direct Opus stream encoding, smart search, play
 - **Search & Playlist Support**: Supports direct YouTube URLs, search queries, and playlists (up to 25 items queued seamlessly).
 - **Advanced Queue System**: Supports queue insertion (`/gplay top`), queue jumping (`/gjump`), immediate skip-play (`/gskipplay`), and previous track recall (`/gprevious`).
 - **Comprehensive Playback Controls**: Pause, resume, seek, volume adjust, loop (single track / entire queue), and shuffle.
+- **YouTube Anti-Bot Bypass**: Supports local `cookies.txt` authentication and custom `PROXY_URL` to bypass YouTube IP bans and bot detection.
+- **Startup Diagnostics**: Automatically runs a pre-flight checklist on boot to verify tokens, binaries, and cookie validity.
 - **Auto Disconnect**: Automatically disconnects from voice channels when idle or when all members leave.
 - **Hot-Reload Commands**: Admins can use `/gupdate` to reload all Slash commands instantly without restarting the bot process.
 - **Aesthetic UI**: Formatted with clean Hot Pink (`#FF69B4`) Discord Embeds.
@@ -58,12 +60,21 @@ It features local audio caching, direct Opus stream encoding, smart search, play
      ```env
      DISCORD_TOKEN=your_discord_bot_token_here
      ```
+   - (Optional) If you are using a free host and experiencing YouTube IP bans, configure a proxy:
+     ```env
+     PROXY_URL=http://your-residential-proxy:port
+     ```
 
 3. **yt-dlp Binary Setup**
    Ensure the `yt-dlp` binary located in `bin/` has execution permissions:
    ```bash
    chmod +x bin/yt-dlp
    ```
+   *(Note: `ffmpeg` and `ffprobe` binaries are automatically downloaded to `bin/ffmpeg-bundle/` dynamically upon first startup!)*
+
+4. **YouTube Authentication (Bypassing "Sign in" Error)**
+   To play songs from YouTube seamlessly, you must extract cookies from your local browser (using extensions like "Get cookies.txt LOCALLY") and upload it to the root directory of the bot as `cookies.txt`.
+   The Startup Diagnostic will automatically verify if your cookie is valid on boot!
 
 ---
 
