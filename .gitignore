@@ -38,3 +38,4 @@ modes-global-roo-code.yaml
 # Music bot caches & secrets
 music_cache/
 cookies.txt
+bin/ffmpeg-bundle
