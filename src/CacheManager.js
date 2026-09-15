@@ -77,9 +77,10 @@ class CacheManager {
         return args;
     }
 
-    _execDownload(source, outTemplate) {
+    _execDownload(source, outTemplate, printJson = false) {
         return new Promise((resolve, reject) => {
             const args = this._buildArgs(source, outTemplate);
+            if (printJson) args.push('--dump-json');
             execFile(this.binPath, args, { maxBuffer: 2 * 1024 * 1024, timeout: 300_000 }, (error, stdout, stderr) => {
                 if (error) {
                     return reject(new Error(stderr || error.message));
@@ -124,7 +125,21 @@ class CacheManager {
                 if (fallback && !track.uri.includes('soundcloud.com')) {
                     console.log(`[CacheManager] Attempting SoundCloud fallback: ${fallback}`);
                     try {
-                        await this._execDownload(fallback, outTemplate);
+                        const stdout = await this._execDownload(fallback, outTemplate, true);
+                        try {
+                            const data = JSON.parse(stdout);
+                            track.title = data.title || track.title;
+                            track.author = data.uploader || data.uploader_id || data.channel || track.author;
+                            track.uri = data.webpage_url || data.url || track.uri;
+                            if (data.thumbnails && data.thumbnails.length) {
+                                track.thumbnail = data.thumbnails[data.thumbnails.length - 1].url;
+                            } else if (data.thumbnail) {
+                                track.thumbnail = data.thumbnail;
+                            }
+                            console.log(`[CacheManager] Fallback mapped to real song: ${track.title}`);
+                        } catch (parseErr) {
+                            console.warn('[CacheManager] Could not parse fallback JSON metadata');
+                        }
                     } catch (fbErr) {
                         console.error(`[CacheManager] SoundCloud fallback also failed: ${fbErr.message.split('\n')[0]}`);
                         throw new Error(`Download failed (primary: ${err.message}, fallback: ${fbErr.message})`);
