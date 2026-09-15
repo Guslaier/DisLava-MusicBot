@@ -11,8 +11,9 @@ const fs = require('fs');
 const CacheManager = require('./CacheManager');
 
 class PlayerQueue extends Array {
-    constructor() {
+    constructor(player) {
         super();
+        this.player = player;
         this.current = null;
         this.previous = null;
     }
@@ -22,6 +23,19 @@ class PlayerQueue extends Array {
             this.push(...track);
         } else {
             this.push(track);
+        }
+        this._triggerPreCache();
+    }
+
+    unshift(...items) {
+        const result = super.unshift(...items);
+        this._triggerPreCache();
+        return result;
+    }
+
+    _triggerPreCache() {
+        if (this.player && this.player._preCacheNextTrack) {
+            this.player._preCacheNextTrack();
         }
     }
 
@@ -61,7 +75,7 @@ class Player {
         this.position = 0;
         this.playbackStartTime = 0;
 
-        this.queue = new PlayerQueue();
+        this.queue = new PlayerQueue(this);
         this.audioPlayer = createAudioPlayer();
         this.connection = null;
         this.currentResource = null;
