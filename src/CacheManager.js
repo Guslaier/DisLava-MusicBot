@@ -12,7 +12,6 @@ class CacheManager {
         
         try {
             const ffmpegBin = require('ffmpeg-static');
-            const ffprobeBin = require('ffprobe-static').path;
             
             if (!fs.existsSync(this.ffmpegBundlePath)) {
                 fs.mkdirSync(this.ffmpegBundlePath, { recursive: true });
@@ -24,11 +23,12 @@ class CacheManager {
                 fs.chmodSync(this.ffmpegPath, 0o755);
             }
             if (!fs.existsSync(bundledFfprobe)) {
-                fs.copyFileSync(ffprobeBin, bundledFfprobe);
+                console.log('[CacheManager] Downloading ffprobe binary...');
+                require('child_process').execSync(`curl -L "https://github.com/eugeneware/ffprobe-static/raw/master/bin/linux/x64/ffprobe" -o "${bundledFfprobe}"`);
                 fs.chmodSync(bundledFfprobe, 0o755);
             }
         } catch (err) {
-            console.error('[CacheManager] Failed to bundle ffmpeg/ffprobe:', err.message);
+            console.error('[CacheManager] Failed to setup ffmpeg/ffprobe:', err.message);
         }
 
         this.downloadPromises = new Map();
