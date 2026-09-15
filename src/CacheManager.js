@@ -7,6 +7,7 @@ class CacheManager {
         this.cacheDir = path.resolve(__dirname, '../music_cache');
         this.binPath = path.resolve(__dirname, '../bin/yt-dlp');
         this.ffmpegPath = path.resolve(__dirname, '../node_modules/ffmpeg-static/ffmpeg');
+        this.ffmpegBundlePath = path.resolve(__dirname, '../bin/ffmpeg-bundle');
         this.downloadPromises = new Map();
 
         if (!fs.existsSync(this.cacheDir)) {
@@ -25,7 +26,7 @@ class CacheManager {
 
     _buildArgs(source, outTemplate) {
         const args = [
-            '--ffmpeg-location', this.ffmpegPath,
+            '--ffmpeg-location', this.ffmpegBundlePath,
             '--js-runtimes', `node:${process.execPath}`,
             '-f', '251/bestaudio/best',
             '-x',
