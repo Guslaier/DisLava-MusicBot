@@ -11,20 +11,19 @@ class CacheManager {
         this.ffmpegPath = path.join(this.ffmpegBundlePath, 'ffmpeg');
         
         try {
-            const ffmpegBin = require('ffmpeg-static');
-            
             if (!fs.existsSync(this.ffmpegBundlePath)) {
                 fs.mkdirSync(this.ffmpegBundlePath, { recursive: true });
             }
             
             const bundledFfprobe = path.join(this.ffmpegBundlePath, 'ffprobe');
             if (!fs.existsSync(this.ffmpegPath)) {
-                fs.copyFileSync(ffmpegBin, this.ffmpegPath);
+                console.log('[CacheManager] Downloading ffmpeg binary...');
+                require('child_process').execSync(`curl -L "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-linux-x64" -o "${this.ffmpegPath}"`);
                 fs.chmodSync(this.ffmpegPath, 0o755);
             }
             if (!fs.existsSync(bundledFfprobe)) {
                 console.log('[CacheManager] Downloading ffprobe binary...');
-                require('child_process').execSync(`curl -L "https://github.com/eugeneware/ffprobe-static/raw/master/bin/linux/x64/ffprobe" -o "${bundledFfprobe}"`);
+                require('child_process').execSync(`curl -L "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffprobe-linux-x64" -o "${bundledFfprobe}"`);
                 fs.chmodSync(bundledFfprobe, 0o755);
             }
         } catch (err) {
