@@ -61,6 +61,10 @@ class CacheManager {
             '--no-warnings'
         ];
 
+        if (process.env.PROXY_URL) {
+            args.push('--proxy', process.env.PROXY_URL);
+        }
+
         const cookiesPath = path.resolve(__dirname, '../cookies.txt');
         if (fs.existsSync(cookiesPath)) {
             args.push('--cookies', cookiesPath);

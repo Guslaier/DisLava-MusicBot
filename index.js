@@ -209,11 +209,12 @@ async function runStartupCheck() {
     // 3. Check cookies.txt
     const cookiesPath = path.join(__dirname, 'cookies.txt');
     if (fs.existsSync(cookiesPath)) {
-        process.stdout.write('⏳ [Cookies] cookies.txt found. Verifying auth... ');
+        process.stdout.write(`⏳ [Cookies] cookies.txt found. Verifying auth${process.env.PROXY_URL ? ' (via proxy)' : ''}... `);
         try {
             const exec = require('util').promisify(require('child_process').exec);
             if (fs.existsSync(ytDlpPath)) {
-                await exec(`"${ytDlpPath}" --cookies "${cookiesPath}" --simulate --get-title "https://www.youtube.com/watch?v=jNQXAC9IVRw"`, { timeout: 15000 });
+                const proxyArg = process.env.PROXY_URL ? `--proxy "${process.env.PROXY_URL}" ` : "";
+                await exec(`"${ytDlpPath}" ${proxyArg}--cookies "${cookiesPath}" --simulate --get-title "https://www.youtube.com/watch?v=jNQXAC9IVRw"`, { timeout: 15000 });
                 console.log('✅ Auth is VALID!');
             } else {
                 console.log('⚠️ Skipped (yt-dlp missing)');
