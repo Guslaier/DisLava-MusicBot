@@ -184,9 +184,63 @@ client.on('voiceStateUpdate', (oldState, newState) => {
     }
 });
 
-// เริ่มการทำงานของบอท
-if (!process.env.DISCORD_TOKEN) {
-    console.error("❌ ไม่พบ DISCORD_TOKEN ในไฟล์ .env");
-    process.exit(1);
+// --- Startup Checklist ---
+async function runStartupCheck() {
+    console.log('\n--- 🚀 [DisLava] Startup Checklist ---');
+    let allGood = true;
+
+    // 1. Check Token
+    if (!process.env.DISCORD_TOKEN) {
+        console.log('❌ [Environment] DISCORD_TOKEN is missing in .env!');
+        allGood = false;
+    } else {
+        console.log('✅ [Environment] DISCORD_TOKEN found.');
+    }
+
+    // 2. Check yt-dlp
+    const ytDlpPath = path.join(__dirname, 'bin', 'yt-dlp');
+    if (fs.existsSync(ytDlpPath)) {
+        console.log('✅ [yt-dlp] Binary found.');
+    } else {
+        console.log('❌ [yt-dlp] Binary is missing at bin/yt-dlp!');
+        allGood = false;
+    }
+
+    // 3. Check cookies.txt
+    const cookiesPath = path.join(__dirname, 'cookies.txt');
+    if (fs.existsSync(cookiesPath)) {
+        console.log('✅ [Cookies] cookies.txt found. (YouTube playback should work)');
+    } else {
+        console.log('⚠️ [Cookies] cookies.txt is MISSING! (YouTube playback might fail with "Sign in" error)');
+    }
+
+    // 4. Check FFmpeg/FFprobe
+    const ffmpegPath = path.join(__dirname, 'bin', 'ffmpeg-bundle', 'ffmpeg');
+    const ffprobePath = path.join(__dirname, 'bin', 'ffmpeg-bundle', 'ffprobe');
+    if (fs.existsSync(ffmpegPath) && fs.existsSync(ffprobePath)) {
+        console.log('✅ [FFmpeg] FFmpeg & FFprobe binaries are ready.');
+    } else {
+        console.log('⚠️ [FFmpeg] FFmpeg/FFprobe binaries not fully set up. (Will be downloaded automatically by CacheManager)');
+    }
+
+    // 5. Check Commands
+    if (commandsData && commandsData.length > 0) {
+        console.log(`✅ [Commands] Loaded ${commandsData.length} commands successfully.`);
+    } else {
+        console.log('❌ [Commands] No commands found or loaded!');
+        allGood = false;
+    }
+
+    console.log('--------------------------------------\n');
+    return allGood;
 }
-client.login(process.env.DISCORD_TOKEN);
+
+// เริ่มการทำงานของบอท
+(async () => {
+    const isReady = await runStartupCheck();
+    if (!isReady) {
+        console.error("❌ บอทไม่สามารถเริ่มทำงานได้เนื่องจากระบบหลักหรือไฟล์สำคัญขาดหาย กรุณาเช็ค Log ด้านบนครับ");
+        process.exit(1);
+    }
+    client.login(process.env.DISCORD_TOKEN);
+})();
