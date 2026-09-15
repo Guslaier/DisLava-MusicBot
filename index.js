@@ -75,7 +75,15 @@ kazagumo.on("playerStuck", (player, track, threshold) => {
 
 // Event เมื่อเกิดข้อผิดพลาดในการเล่นเพลง
 kazagumo.on("playerException", (player, track, exception) => {
-    console.error(`❌ Player exception on track: ${track?.title}:`, JSON.stringify(exception || exception?.message || {}));
+    console.error(`❌ Player exception on track: ${track?.title}:`, exception);
+    if (!player.textId) return;
+    const channel = client.channels.cache.get(player.textId);
+    if (channel) {
+        const embed = new EmbedBuilder()
+            .setColor('#FF0000')
+            .setDescription(`❌ ไม่สามารถโหลดเพลง **${track?.title}** ได้ค่ะ ขอข้ามไปเพลงถัดไปนะคะ 🥺\n\`${exception.message || "Unknown Error"}\``);
+        channel.send({ embeds: [embed] }).catch(() => { });
+    }
 });
 
 // Event เมื่อเพลงจบ
