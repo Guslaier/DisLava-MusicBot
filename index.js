@@ -214,7 +214,21 @@ async function runStartupCheck() {
         allGood = false;
     }
 
-    // 3. Check cookies.txt
+    // 3. Check Proxy
+    if (process.env.PROXY_URL) {
+        process.stdout.write(`⏳ [Proxy] Testing proxy connection: ${process.env.PROXY_URL}... `);
+        try {
+            const exec = require('util').promisify(require('child_process').exec);
+            // Use curl to test the proxy quickly against a reliable endpoint
+            await exec(`curl -x "${process.env.PROXY_URL}" -I -s --connect-timeout 5 https://www.google.com`);
+            console.log('✅ Proxy is working!');
+        } catch (err) {
+            console.log(`\n❌ [Proxy] Proxy is OFFLINE or unreachable! Disabling proxy for this session.`);
+            delete process.env.PROXY_URL; // ลบออกจาก env เพื่อให้บอททำงานต่อได้แบบไม่มี Proxy
+        }
+    }
+
+    // 4. Check cookies.txt
     const cookiesPath = path.join(__dirname, 'cookies.txt');
     if (fs.existsSync(cookiesPath)) {
         process.stdout.write(`⏳ [Cookies] cookies.txt found. Verifying auth${process.env.PROXY_URL ? ' (via proxy)' : ''}... `);
@@ -228,7 +242,7 @@ async function runStartupCheck() {
                 console.log('⚠️ Skipped (yt-dlp missing)');
             }
         } catch (err) {
-            console.log('\n❌ [Cookies] Auth is INVALID or EXPIRED! Please export new cookies.txt (YouTube playback will fail)');
+            console.log('\n❌ [Cookies] Auth is INVALID or YouTube blocked the request! (YouTube playback will fail)');
         }
     } else {
         console.log('⚠️ [Cookies] cookies.txt is MISSING! (YouTube playback might fail with "Sign in" error)');
