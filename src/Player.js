@@ -33,6 +33,12 @@ class PlayerQueue extends Array {
         return result;
     }
 
+    shift() {
+        const result = super.shift();
+        this._triggerPreCache();
+        return result;
+    }
+
     _triggerPreCache() {
         if (this.player && this.player._preCacheNextTrack) {
             this.player._preCacheNextTrack();
