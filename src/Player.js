@@ -257,6 +257,7 @@ class Player {
             this._starting = false; // playback started; the Idle handler may advance again
             this.manager.emit('playerStart', this, track);
             console.log(`[Player] Audio resource playing via FFmpeg on Discord voice gateway`);
+            this._preCacheNextTrack();
         } catch (error) {
             if (token !== this._playToken) return; // stale failure: ignore, a newer call owns playback
             console.error(`Failed to play track ${track.title}:`, error);
@@ -358,6 +359,15 @@ class Player {
         }
     }
 
+    _preCacheNextTrack() {
+        if (this.queue.length > 0 && this.playing) {
+            const nextTrack = this.queue[0];
+            CacheManager.prepareTrack(nextTrack).catch(err => {
+                console.warn(`[Player] Background pre-cache warning: ${err.message.split('\n')[0]}`);
+            });
+        }
+    }
+
     destroy() {
         this.stop();
         if (this.connection) {
@@ -367,6 +377,7 @@ class Player {
             this.connection = null;
         }
         this.manager.players.delete(this.guildId);
+        if (global.gc) global.gc();
     }
 }
 

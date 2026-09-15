@@ -1,7 +1,7 @@
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
-const { Client, GatewayIntentBits, Collection, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { Client, GatewayIntentBits, Options, Collection, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const QueueManager = require('./src/QueueManager');
 const cacheManager = require('./src/CacheManager');
 
@@ -9,7 +9,31 @@ const client = new Client({
     intents: [
         GatewayIntentBits.Guilds,
         GatewayIntentBits.GuildVoiceStates
-    ]
+    ],
+    makeCache: Options.cacheWithLimits({
+        ApplicationCommandManager: 0,
+        BaseGuildEmojiManager: 0,
+        GuildBanManager: 0,
+        GuildInviteManager: 0,
+        GuildMemberManager: 0,
+        GuildStickerManager: 0,
+        GuildScheduledEventManager: 0,
+        MessageManager: 0,
+        PresenceManager: 0,
+        ReactionManager: 0,
+        ReactionUserManager: 0,
+        StageInstanceManager: 0,
+        ThreadManager: 0,
+        ThreadMemberManager: 0,
+        UserManager: 0
+    }),
+    sweepers: {
+        ...Options.DefaultSweeperSettings,
+        messages: {
+            interval: 300,
+            lifetime: 60
+        }
+    }
 });
 
 client.commands = new Collection();
@@ -59,6 +83,7 @@ kazagumo.on("playerException", (player, track, exception) => {
 // Event เมื่อเพลงจบ
 kazagumo.on("playerEnd", (player, track) => {
     console.log(`ℹ️ Player ended track: ${track.title}`);
+    if (global.gc) global.gc();
 });
 
 // Event เมื่อคิวหมด
@@ -72,14 +97,15 @@ kazagumo.on("playerEmpty", player => {
         channel.send({ embeds: [embed] }).catch(() => { });
     }
     player.destroy();
+    if (global.gc) global.gc();
 });
 
 client.on('ready', async () => {
     console.log(`✅ Logged in as ${client.user.tag} (yt-dlp Version)!`);
 
-    // Cache cleanup: run once at startup, then hourly sweep (files older than 24h)
-    cacheManager.cleanOldCache(24);
-    setInterval(() => cacheManager.cleanOldCache(24), 60 * 60 * 1000).unref();
+    // Cache cleanup: run once at startup, then sweep every 30m (files older than 2h)
+    cacheManager.cleanOldCache(2);
+    setInterval(() => cacheManager.cleanOldCache(2), 30 * 60 * 1000).unref();
 
     try {
         await client.application.commands.set(commandsData);

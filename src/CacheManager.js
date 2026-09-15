@@ -23,6 +23,54 @@ class CacheManager {
         return fs.existsSync(filePath) && fs.statSync(filePath).size > 1024;
     }
 
+    _buildArgs(source, outTemplate) {
+        const args = [
+            '--ffmpeg-location', this.ffmpegPath,
+            '--js-runtimes', `node:${process.execPath}`,
+            '-f', '251/bestaudio/best',
+            '-x',
+            '--audio-format', 'opus',
+            '--concurrent-fragments', '1',
+            '--buffer-size', '16K',
+            '--no-cache-dir',
+            '--no-playlist',
+            '--force-overwrites',
+            '--no-warnings'
+        ];
+
+        const cookiesPath = path.resolve(__dirname, '../cookies.txt');
+        if (fs.existsSync(cookiesPath)) {
+            args.push('--cookies', cookiesPath);
+        }
+
+        args.push('-o', outTemplate, source);
+        return args;
+    }
+
+    _execDownload(source, outTemplate) {
+        return new Promise((resolve, reject) => {
+            const args = this._buildArgs(source, outTemplate);
+            execFile(this.binPath, args, { maxBuffer: 2 * 1024 * 1024, timeout: 300_000 }, (error, stdout, stderr) => {
+                if (error) {
+                    return reject(new Error(stderr || error.message));
+                }
+                resolve(stdout);
+            });
+        });
+    }
+
+    _getSoundCloudFallback(track) {
+        const title = track.title || '';
+        const author = track.author || '';
+        const cleanTitle = title
+            .replace(/\[.*?\]|\(.*?\)|【.*?】|MV|Official|Music Video|Audio|Lyrics/gi, '')
+            .replace(/[|/\\#~!?@$%^&*_+<>{}=]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        const query = `${cleanTitle || title} ${author}`.trim();
+        return query ? `scsearch1:${query}` : null;
+    }
+
     async prepareTrack(track) {
         const identifier = track.identifier || Buffer.from(track.uri || '').toString('hex').slice(0, 20);
         const targetPath = this.getTrackPath(identifier);
@@ -35,33 +83,35 @@ class CacheManager {
             return this.downloadPromises.get(identifier);
         }
 
-        const downloadPromise = new Promise((resolve, reject) => {
+        const downloadPromise = (async () => {
             const outTemplate = path.join(this.cacheDir, `${identifier}.%(ext)s`);
-            const args = [
-                '--ffmpeg-location', this.ffmpegPath,
-                '-f', 'bestaudio/best',
-                '-x',
-                '--audio-format', 'opus',
-                '--no-playlist',
-                '--force-overwrites',
-                '-o', outTemplate,
-                track.uri
-            ];
 
-            execFile(this.binPath, args, { maxBuffer: 10 * 1024 * 1024, timeout: 300_000 }, (error, stdout, stderr) => {
-                this.downloadPromises.delete(identifier);
-                if (error) {
-                    console.error(`CacheManager download error for ${track.uri}:`, stderr || error.message);
-                    return reject(new Error(stderr || error.message));
-                }
-
-                if (fs.existsSync(targetPath)) {
-                    resolve(targetPath);
+            try {
+                await this._execDownload(track.uri, outTemplate);
+            } catch (err) {
+                console.warn(`[CacheManager] Primary download failed for "${track.title || track.uri}": ${err.message.split('\n')[0]}`);
+                const fallback = this._getSoundCloudFallback(track);
+                if (fallback && !track.uri.includes('soundcloud.com')) {
+                    console.log(`[CacheManager] Attempting SoundCloud fallback: ${fallback}`);
+                    try {
+                        await this._execDownload(fallback, outTemplate);
+                    } catch (fbErr) {
+                        console.error(`[CacheManager] SoundCloud fallback also failed: ${fbErr.message.split('\n')[0]}`);
+                        throw new Error(`Download failed (primary: ${err.message}, fallback: ${fbErr.message})`);
+                    }
                 } else {
-                    reject(new Error(`Cached file not found at ${targetPath}`));
+                    throw err;
                 }
-            });
-        });
+            } finally {
+                this.downloadPromises.delete(identifier);
+                if (global.gc) global.gc();
+            }
+
+            if (fs.existsSync(targetPath)) {
+                return targetPath;
+            }
+            throw new Error(`Cached file not found at ${targetPath}`);
+        })();
 
         this.downloadPromises.set(identifier, downloadPromise);
         return downloadPromise;

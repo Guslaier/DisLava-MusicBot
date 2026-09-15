@@ -9,7 +9,15 @@ const cacheDir = path.resolve(__dirname, '../music_cache');
 
 function fetchYtDlpJson(query) {
     return new Promise((resolve) => {
-        execFile(binPath, ['-J', '--flat-playlist', '--playlist-items', '1:25', query], { maxBuffer: 10 * 1024 * 1024, timeout: 30000, killSignal: 'SIGKILL' }, (err, stdout) => {
+        const args = ['-J', '--flat-playlist', '--playlist-items', '1:25'];
+        const cookiesPath = path.resolve(__dirname, '../cookies.txt');
+        if (fs.existsSync(cookiesPath)) {
+            args.push('--cookies', cookiesPath);
+        }
+        args.push('--js-runtimes', `node:${process.execPath}`);
+        args.push(query);
+
+        execFile(binPath, args, { maxBuffer: 2 * 1024 * 1024, timeout: 30000, killSignal: 'SIGKILL' }, (err, stdout) => {
             if (err || !stdout) return resolve(null);
             try {
                 const data = JSON.parse(stdout);
@@ -93,7 +101,10 @@ class QueueManager extends EventEmitter {
                     };
                 }
             } else {
-                const data = await fetchYtDlpJson(`ytsearch5:${cleanQuery}`);
+                let data = await fetchYtDlpJson(`ytsearch5:${cleanQuery}`);
+                if ((!data || !data.entries || data.entries.length === 0) && !cleanQuery.startsWith('http')) {
+                    data = await fetchYtDlpJson(`scsearch5:${cleanQuery}`);
+                }
                 if (data && data.entries && data.entries.length > 0) {
                     const tracks = data.entries.map(e => new Track(e, requester));
                     return {

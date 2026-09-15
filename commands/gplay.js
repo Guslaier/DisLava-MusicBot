@@ -101,6 +101,8 @@ module.exports = {
                 console.error('gplay play error:', error);
                 return interaction.editReply('❌ เกิดข้อผิดพลาดในการเริ่มเล่นเพลงค่ะ');
             }
+        } else if (player.playing) {
+            player._preCacheNextTrack?.();
         }
     }
 };
