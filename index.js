@@ -15,7 +15,6 @@ const client = new Client({
         BaseGuildEmojiManager: 0,
         GuildBanManager: 0,
         GuildInviteManager: 0,
-        GuildMemberManager: 0,
         GuildStickerManager: 0,
         GuildScheduledEventManager: 0,
         MessageManager: 0,
@@ -24,8 +23,7 @@ const client = new Client({
         ReactionUserManager: 0,
         StageInstanceManager: 0,
         ThreadManager: 0,
-        ThreadMemberManager: 0,
-        UserManager: 0
+        ThreadMemberManager: 0
     }),
     sweepers: {
         ...Options.DefaultSweeperSettings,
@@ -165,23 +163,24 @@ client.on('interactionCreate', async interaction => {
 // Auto-disconnect when no non-bot members remain in the bot's voice channel
 client.on('voiceStateUpdate', (oldState, newState) => {
     // Ignore the bot's own state changes (handled by Player.js Disconnected logic)
-    if (oldState.member?.user.bot) return;
+    if (oldState.id === client.user.id || newState.id === client.user.id) return;
 
-    const player = kazagumo.getPlayer(oldState.guild.id);
+    const guild = oldState.guild || newState.guild;
+    if (!guild) return;
+
+    const player = kazagumo.getPlayer(guild.id);
     if (!player || !player.voiceId) return;
 
-    // Check both old and new channel to cover members switching channels
-    const channelIds = [oldState.channelId, newState.channelId]
-        .filter((id, index, arr) => id === player.voiceId && arr.indexOf(id) === index);
+    // Check only if someone left or moved away from the bot's voice channel
+    if (oldState.channelId !== player.voiceId && newState.channelId !== player.voiceId) return;
 
-    for (const channelId of channelIds) {
-        const channel = oldState.guild.channels.cache.get(channelId);
-        if (!channel) continue;
-        const nonBotMembers = channel.members.filter(m => !m.user.bot);
-        if (nonBotMembers.size === 0) {
-            player.destroy();
-            break;
-        }
+    const channel = guild.channels.cache.get(player.voiceId);
+    if (!channel) return;
+
+    const nonBotMembers = channel.members.filter(m => !m.user.bot);
+    if (nonBotMembers.size === 0) {
+        console.log(`[Player] No members left in voice channel, disconnecting from ${guild.name} (${guild.id})`);
+        player.destroy();
     }
 });
 
