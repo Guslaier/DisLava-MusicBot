@@ -209,7 +209,18 @@ async function runStartupCheck() {
     // 3. Check cookies.txt
     const cookiesPath = path.join(__dirname, 'cookies.txt');
     if (fs.existsSync(cookiesPath)) {
-        console.log('✅ [Cookies] cookies.txt found. (YouTube playback should work)');
+        process.stdout.write('⏳ [Cookies] cookies.txt found. Verifying auth... ');
+        try {
+            const exec = require('util').promisify(require('child_process').exec);
+            if (fs.existsSync(ytDlpPath)) {
+                await exec(`"${ytDlpPath}" --cookies "${cookiesPath}" --simulate --get-title "https://www.youtube.com/watch?v=jNQXAC9IVRw"`, { timeout: 15000 });
+                console.log('✅ Auth is VALID!');
+            } else {
+                console.log('⚠️ Skipped (yt-dlp missing)');
+            }
+        } catch (err) {
+            console.log('\n❌ [Cookies] Auth is INVALID or EXPIRED! Please export new cookies.txt (YouTube playback will fail)');
+        }
     } else {
         console.log('⚠️ [Cookies] cookies.txt is MISSING! (YouTube playback might fail with "Sign in" error)');
     }
