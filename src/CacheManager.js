@@ -61,15 +61,18 @@ class CacheManager {
             '--no-cache-dir',
             '--no-playlist',
             '--force-overwrites',
-            '--no-warnings'
+            '--no-warnings',
+            '--extractor-args', 'youtube:player_client=android'
         ];
 
-        if (process.env.PROXY_URL) {
+        const isSoundCloud = source.includes('soundcloud.com') || source.startsWith('scsearch');
+
+        if (process.env.PROXY_URL && !isSoundCloud) {
             args.push('--proxy', process.env.PROXY_URL);
         }
 
         const cookiesPath = path.resolve(__dirname, '../cookies.txt');
-        if (fs.existsSync(cookiesPath)) {
+        if (fs.existsSync(cookiesPath) && !isSoundCloud) {
             args.push('--cookies', cookiesPath);
         }
 
