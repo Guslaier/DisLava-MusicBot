@@ -6,8 +6,31 @@ class CacheManager {
     constructor() {
         this.cacheDir = path.resolve(__dirname, '../music_cache');
         this.binPath = path.resolve(__dirname, '../bin/yt-dlp');
-        this.ffmpegPath = path.resolve(__dirname, '../node_modules/ffmpeg-static/ffmpeg');
+        
         this.ffmpegBundlePath = path.resolve(__dirname, '../bin/ffmpeg-bundle');
+        this.ffmpegPath = path.join(this.ffmpegBundlePath, 'ffmpeg');
+        
+        try {
+            const ffmpegBin = require('ffmpeg-static');
+            const ffprobeBin = require('ffprobe-static').path;
+            
+            if (!fs.existsSync(this.ffmpegBundlePath)) {
+                fs.mkdirSync(this.ffmpegBundlePath, { recursive: true });
+            }
+            
+            const bundledFfprobe = path.join(this.ffmpegBundlePath, 'ffprobe');
+            if (!fs.existsSync(this.ffmpegPath)) {
+                fs.copyFileSync(ffmpegBin, this.ffmpegPath);
+                fs.chmodSync(this.ffmpegPath, 0o755);
+            }
+            if (!fs.existsSync(bundledFfprobe)) {
+                fs.copyFileSync(ffprobeBin, bundledFfprobe);
+                fs.chmodSync(bundledFfprobe, 0o755);
+            }
+        } catch (err) {
+            console.error('[CacheManager] Failed to bundle ffmpeg/ffprobe:', err.message);
+        }
+
         this.downloadPromises = new Map();
 
         if (!fs.existsSync(this.cacheDir)) {
