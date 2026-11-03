@@ -84,12 +84,10 @@ class CacheManager {
         const activeProxy = proxyManager.getProxyUrl();
         const useIPv6 = process.env.USE_IPV6 === 'true';
 
-        if (useIPv6 && !isSoundCloud) {
-            args.push('--force-ipv6');
-        }
-
         if (activeProxy && !isSoundCloud) {
             args.push('--proxy', activeProxy);
+        } else if (useIPv6 && !isSoundCloud) {
+            args.push('--force-ipv6');
         }
 
         if (!isSoundCloud) {
