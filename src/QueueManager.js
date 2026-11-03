@@ -7,32 +7,10 @@ const Player = require('./Player');
 const binPath = path.resolve(__dirname, '../bin/yt-dlp');
 const cacheDir = path.resolve(__dirname, '../music_cache');
 
-function fetchYtDlpJson(query) {
-    return new Promise((resolve) => {
-        const args = ['-J', '--flat-playlist', '--playlist-items', '1:25'];
-        const cookiesPath = path.resolve(__dirname, '../cookies.txt');
-        if (fs.existsSync(cookiesPath)) {
-            args.push('--cookies', cookiesPath);
-        }
-        args.push('--js-runtimes', `node:${process.execPath}`);
-        args.push(query);
-
-        execFile(binPath, args, { maxBuffer: 2 * 1024 * 1024, timeout: 30000, killSignal: 'SIGKILL' }, (err, stdout) => {
-            if (err || !stdout) return resolve(null);
-            try {
-                const data = JSON.parse(stdout);
-                resolve(data);
-            } catch {
-                resolve(null);
-            }
-        });
-    });
-}
-
 class Track {
     constructor(data, requester) {
         this.title = data.title || 'Unknown Title';
-        this.author = data.uploader || data.channel || data.author || 'Unknown Artist';
+        this.author = data.uploader || data.channel || data.author || data.artist || 'Unknown Artist';
         this.uri = data.url || (data.id ? `https://www.youtube.com/watch?v=${data.id}` : data.uri);
         this.identifier = data.id || data.identifier || '';
         this.length = (data.duration ? data.duration * 1000 : (data.length || 0));
@@ -47,6 +25,12 @@ class QueueManager extends EventEmitter {
         super();
         this.client = client;
         this.players = new Map();
+        this.isYouTubeBlocked = false;
+        this.lastYouTubeCheckTime = 0;
+        this._searchQueue = [];
+        this._activeSearches = 0;
+        this._maxConcurrentSearches = 2; // Limit concurrent yt-dlp child processes to preserve 256MB RAM
+
         // Fire-and-forget cache cleanup when a track finishes (non-blocking)
         this.on('playerEnd', (player, track) => this._deleteTrackCacheAsync(player, track));
     }
@@ -75,6 +59,106 @@ class QueueManager extends EventEmitter {
         return this.players.get(guildId) || null;
     }
 
+    /**
+     * Executes yt-dlp metadata extraction with concurrency limiter and anti-bot arguments.
+     * Omits heavy JS runtimes to save ~50MB RAM per call.
+     */
+    _fetchYtDlpJson(query) {
+        return new Promise((resolve) => {
+            const execute = () => {
+                this._activeSearches++;
+                const args = [
+                    '-J',
+                    '--flat-playlist',
+                    '--playlist-items', '1:25',
+                    '--no-warnings',
+                    '--no-playlist-reverse',
+                    '--extractor-args', 'youtube:player_client=ios,android,web_embedded;player_skip=webpage,configs'
+                ];
+
+                const isSoundCloud = query.includes('soundcloud.com') || query.startsWith('scsearch');
+
+                if (process.env.PROXY_URL && !isSoundCloud) {
+                    args.push('--proxy', process.env.PROXY_URL);
+                }
+
+                const cookiesPath = path.resolve(__dirname, '../cookies.txt');
+                if (fs.existsSync(cookiesPath) && !isSoundCloud) {
+                    args.push('--cookies', cookiesPath);
+                }
+
+                args.push(query);
+
+                execFile(binPath, args, { maxBuffer: 4 * 1024 * 1024, timeout: 15000, killSignal: 'SIGKILL' }, (err, stdout, stderr) => {
+                    this._activeSearches--;
+                    this._processNextSearch();
+
+                    const outputErr = (stderr || '') + (err?.message || '');
+                    if (outputErr.includes('Sign in to confirm') || outputErr.includes('bot') || outputErr.includes('429')) {
+                        this.isYouTubeBlocked = true;
+                        this.lastYouTubeCheckTime = Date.now();
+                        console.warn('[QueueManager] YouTube Anti-Bot IP block detected. Switching to fallback search mode.');
+                    }
+
+                    if (err || !stdout) return resolve(null);
+                    try {
+                        const data = JSON.parse(stdout);
+                        resolve(data);
+                    } catch {
+                        resolve(null);
+                    }
+                });
+            };
+
+            if (this._activeSearches < this._maxConcurrentSearches) {
+                execute();
+            } else {
+                this._searchQueue.push(execute);
+            }
+        });
+    }
+
+    _processNextSearch() {
+        if (this._searchQueue.length > 0 && this._activeSearches < this._maxConcurrentSearches) {
+            const next = this._searchQueue.shift();
+            next();
+        }
+    }
+
+    /**
+     * Resolves basic track metadata via YouTube's public oEmbed API.
+     * This endpoint NEVER blocks datacenter IPs and does not require cookies/login.
+     */
+    async _fetchYouTubeOEmbed(url) {
+        try {
+            const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 4000);
+            const res = await fetch(oembedUrl, { signal: controller.signal });
+            clearTimeout(timeout);
+
+            if (res.ok) {
+                const data = await res.json();
+                let videoId = '';
+                const match = url.match(/(?:v=|\/embed\/|\/17\/|\/v\/|https:\/\/youtu\.be\/|\/shorts\/)([a-zA-Z0-9_-]{11})/);
+                if (match) videoId = match[1];
+
+                return {
+                    title: data.title,
+                    author: data.author_name,
+                    id: videoId,
+                    url: videoId ? `https://www.youtube.com/watch?v=${videoId}` : url,
+                    thumbnails: [{ url: data.thumbnail_url }]
+                };
+            }
+        } catch {}
+        return null;
+    }
+
+    /**
+     * Smart Multi-Tier Search Engine:
+     * Fast, resilient to YouTube IP bans, with automatic fallback to SoundCloud.
+     */
     async search(query, options = {}) {
         const requester = options.requester;
         const cleanQuery = query ? query.trim() : '';
@@ -83,38 +167,81 @@ class QueueManager extends EventEmitter {
             return { type: 'SEARCH', tracks: [] };
         }
 
-        try {
-            if (cleanQuery.startsWith('http')) {
-                const data = await fetchYtDlpJson(cleanQuery);
-                if (data) {
-                    if (data._type === 'playlist' && data.entries && data.entries.length > 0) {
-                        const tracks = data.entries.slice(0, 25).map(e => new Track(e, requester));
-                        return {
-                            type: 'PLAYLIST',
-                            playlistName: data.title || 'YouTube Playlist',
-                            tracks
-                        };
-                    }
+        // Reset YouTube block status after 10 minutes to re-test if unblocked
+        if (this.isYouTubeBlocked && Date.now() - this.lastYouTubeCheckTime > 10 * 60 * 1000) {
+            this.isYouTubeBlocked = false;
+        }
+
+        const isUrl = cleanQuery.startsWith('http://') || cleanQuery.startsWith('https://');
+
+        // --- Case 1: Direct URL provided ---
+        if (isUrl) {
+            let targetUrl = cleanQuery;
+            const ytMatch = cleanQuery.match(/(?:v=|\/embed\/|\/17\/|\/v\/|https:\/\/youtu\.be\/|\/shorts\/)([a-zA-Z0-9_-]{11})/);
+            if (ytMatch && !cleanQuery.includes('playlist')) {
+                targetUrl = `https://www.youtube.com/watch?v=${ytMatch[1]}`;
+            }
+
+            let data = await this._fetchYtDlpJson(targetUrl);
+
+            // If yt-dlp metadata failed on YouTube URL (e.g. server IP blocked), use oEmbed bypass
+            if (!data && (cleanQuery.includes('youtube.com') || cleanQuery.includes('youtu.be'))) {
+                console.log('[QueueManager] yt-dlp blocked on URL. Using YouTube oEmbed anti-ban bypass...');
+                data = await this._fetchYouTubeOEmbed(targetUrl);
+            }
+
+            if (data) {
+                if (data._type === 'playlist' && data.entries && data.entries.length > 0) {
+                    const tracks = data.entries.slice(0, 25).map(e => new Track(e, requester));
                     return {
-                        type: 'TRACK',
-                        tracks: [new Track(data, requester)]
-                    };
-                }
-            } else {
-                let data = await fetchYtDlpJson(`ytsearch5:${cleanQuery}`);
-                if ((!data || !data.entries || data.entries.length === 0) && !cleanQuery.startsWith('http')) {
-                    data = await fetchYtDlpJson(`scsearch5:${cleanQuery}`);
-                }
-                if (data && data.entries && data.entries.length > 0) {
-                    const tracks = data.entries.map(e => new Track(e, requester));
-                    return {
-                        type: 'SEARCH',
+                        type: 'PLAYLIST',
+                        playlistName: data.title || 'Playlist',
                         tracks
                     };
                 }
+                return {
+                    type: 'TRACK',
+                    tracks: [new Track(data, requester)]
+                };
             }
-        } catch (error) {
-            console.error('QueueManager search error:', error.message);
+
+            return { type: 'SEARCH', tracks: [] };
+        }
+
+        // --- Case 2: Keyword Search ---
+        const sanitized = cleanQuery
+            .replace(/\[.*?\]|\(.*?\)|【.*?】|MV|Official|Music Video|Audio|Lyrics/gi, '')
+            .replace(/[|/\\#~!?@$%^&*_+<>{}=]/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        const searchKeyword = sanitized || cleanQuery;
+
+        // If YouTube is known to be IP-blocked, jump directly to SoundCloud for sub-second search
+        if (this.isYouTubeBlocked || options.engine === 'soundcloud') {
+            console.log(`[QueueManager] Fast SoundCloud search for: "${searchKeyword}"`);
+            const scData = await this._fetchYtDlpJson(`scsearch5:${searchKeyword}`);
+            if (scData && scData.entries && scData.entries.length > 0) {
+                return {
+                    type: 'SEARCH',
+                    tracks: scData.entries.map(e => new Track(e, requester))
+                };
+            }
+        }
+
+        // Primary: YouTube Search
+        let data = await this._fetchYtDlpJson(`ytsearch5:${cleanQuery}`);
+
+        // If YouTube search failed or blocked, immediately fallback to SoundCloud search
+        if (!data || !data.entries || data.entries.length === 0) {
+            console.log(`[QueueManager] YouTube search missed or blocked. Falling back to SoundCloud for: "${searchKeyword}"`);
+            data = await this._fetchYtDlpJson(`scsearch5:${searchKeyword}`);
+        }
+
+        if (data && data.entries && data.entries.length > 0) {
+            return {
+                type: 'SEARCH',
+                tracks: data.entries.map(e => new Track(e, requester))
+            };
         }
 
         return { type: 'SEARCH', tracks: [] };

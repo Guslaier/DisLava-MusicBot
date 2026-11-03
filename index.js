@@ -1,7 +1,7 @@
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
-const { Client, GatewayIntentBits, Options, Collection, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
+const { Client, GatewayIntentBits, Options, Collection, EmbedBuilder } = require('discord.js');
 const QueueManager = require('./src/QueueManager');
 const cacheManager = require('./src/CacheManager');
 
@@ -50,7 +50,6 @@ for (const file of commandFiles) {
     }
 }
 
-
 // สร้าง Audio Engine และ QueueManager
 const kazagumo = new QueueManager(client);
 
@@ -70,25 +69,28 @@ kazagumo.on("playerStart", (player, track) => {
 
 // Event เมื่อเพลงติดขัด
 kazagumo.on("playerStuck", (player, track, threshold) => {
-    console.warn(`⚠️ Player stuck on track: ${track.title} (threshold: ${threshold}ms)`);
+    console.warn(`⚠️ Player stuck on track: ${track?.title} (threshold: ${threshold}ms)`);
 });
 
 // Event เมื่อเกิดข้อผิดพลาดในการเล่นเพลง
 kazagumo.on("playerException", (player, track, exception) => {
-    console.error(`❌ Player exception on track: ${track?.title}:`, exception);
+    const errorMsg = exception?.message || (typeof exception === 'string' ? exception : 'Unknown Error');
+    const trackTitle = track?.title || 'Unknown Track';
+    console.error(`❌ Player exception on track "${trackTitle}":`, errorMsg);
+
     if (!player.textId) return;
     const channel = client.channels.cache.get(player.textId);
     if (channel) {
         const embed = new EmbedBuilder()
             .setColor('#FF0000')
-            .setDescription(`❌ ไม่สามารถโหลดเพลง **${track?.title}** ได้ค่ะ ขอข้ามไปเพลงถัดไปนะคะ 🥺\n\`${exception.message || "Unknown Error"}\``);
+            .setDescription(`❌ ไม่สามารถโหลดเพลง **${trackTitle}** ได้ค่ะ ขอข้ามไปเพลงถัดไปนะคะ 🥺\n\`${errorMsg}\``);
         channel.send({ embeds: [embed] }).catch(() => { });
     }
 });
 
 // Event เมื่อเพลงจบ
 kazagumo.on("playerEnd", (player, track) => {
-    console.log(`ℹ️ Player ended track: ${track.title}`);
+    console.log(`ℹ️ Player ended track: ${track?.title || 'Track'}`);
     if (global.gc) global.gc();
 });
 
@@ -107,11 +109,14 @@ kazagumo.on("playerEmpty", player => {
 });
 
 client.on('ready', async () => {
-    console.log(`✅ Logged in as ${client.user.tag} (yt-dlp Version)!`);
+    console.log(`✅ Logged in as ${client.user.tag} (Ultra-Light Engine)!`);
 
-    // Cache cleanup: run once at startup, then sweep every 30m (files older than 2h)
+    // Clean old cache at startup and sweep every 15 minutes (max 50MB quota)
     cacheManager.cleanOldCache(2);
-    setInterval(() => cacheManager.cleanOldCache(2), 30 * 60 * 1000).unref();
+    setInterval(() => {
+        cacheManager.cleanOldCache(2);
+        if (global.gc) global.gc();
+    }, 15 * 60 * 1000).unref();
 
     try {
         await client.application.commands.set(commandsData);
@@ -170,7 +175,6 @@ client.on('interactionCreate', async interaction => {
 
 // Auto-disconnect when no non-bot members remain in the bot's voice channel
 client.on('voiceStateUpdate', (oldState, newState) => {
-    // Ignore the bot's own state changes (handled by Player.js Disconnected logic)
     if (oldState.id === client.user.id || newState.id === client.user.id) return;
 
     const guild = oldState.guild || newState.guild;
@@ -179,7 +183,6 @@ client.on('voiceStateUpdate', (oldState, newState) => {
     const player = kazagumo.getPlayer(guild.id);
     if (!player || !player.voiceId) return;
 
-    // Check only if someone left or moved away from the bot's voice channel
     if (oldState.channelId !== player.voiceId && newState.channelId !== player.voiceId) return;
 
     const channel = guild.channels.cache.get(player.voiceId);
@@ -219,46 +222,30 @@ async function runStartupCheck() {
         process.stdout.write(`⏳ [Proxy] Testing proxy connection: ${process.env.PROXY_URL}... `);
         try {
             const exec = require('util').promisify(require('child_process').exec);
-            // Use curl to test the proxy quickly against a reliable endpoint
-            await exec(`curl -x "${process.env.PROXY_URL}" -I -s --connect-timeout 5 https://www.google.com`);
+            await exec(`curl -x "${process.env.PROXY_URL}" -I -s --connect-timeout 4 https://www.google.com`);
             console.log('✅ Proxy is working!');
         } catch (err) {
             console.log(`\n❌ [Proxy] Proxy is OFFLINE or unreachable! Disabling proxy for this session.`);
-            delete process.env.PROXY_URL; // ลบออกจาก env เพื่อให้บอททำงานต่อได้แบบไม่มี Proxy
+            delete process.env.PROXY_URL;
         }
     }
 
-    // 4. Check cookies.txt
+    // 4. Check YouTube Auth & Anti-Bot Status (Fast 8s diagnostic)
     const cookiesPath = path.join(__dirname, 'cookies.txt');
     if (fs.existsSync(cookiesPath)) {
-        process.stdout.write(`⏳ [Cookies] cookies.txt found. Verifying auth${process.env.PROXY_URL ? ' (via proxy)' : ''}... `);
-        try {
-            const exec = require('util').promisify(require('child_process').exec);
-            if (fs.existsSync(ytDlpPath)) {
-                const proxyArg = process.env.PROXY_URL ? `--proxy "${process.env.PROXY_URL}" ` : "";
-                await exec(`"${ytDlpPath}" ${proxyArg}--cookies "${cookiesPath}" --simulate --get-title "https://www.youtube.com/watch?v=jNQXAC9IVRw"`, { timeout: 60000 });
-                console.log('✅ Auth is VALID!');
-            } else {
-                console.log('⚠️ Skipped (yt-dlp missing)');
-            }
-        } catch (err) {
-            console.log('\n❌ [Cookies] Auth is INVALID or YouTube blocked the request! (YouTube playback will fail)');
-            if (err.killed) console.log('   -> Note: The check timed out. Proxy might be too slow.');
-        }
+        console.log('✅ [Cookies] cookies.txt found.');
     } else {
-        console.log('⚠️ [Cookies] cookies.txt is MISSING! (YouTube playback might fail with "Sign in" error)');
+        console.log('ℹ️ [Cookies] cookies.txt not found. (SoundCloud & oEmbed fallback will be used if YouTube restricts IP)');
     }
 
-    // 4. Check FFmpeg/FFprobe
-    const ffmpegPath = path.join(__dirname, 'bin', 'ffmpeg-bundle', 'ffmpeg');
-    const ffprobePath = path.join(__dirname, 'bin', 'ffmpeg-bundle', 'ffprobe');
-    if (fs.existsSync(ffmpegPath) && fs.existsSync(ffprobePath)) {
-        console.log('✅ [FFmpeg] FFmpeg & FFprobe binaries are ready.');
+    // 5. Check FFmpeg binary
+    if (fs.existsSync(cacheManager.ffmpegPath)) {
+        console.log(`✅ [FFmpeg] FFmpeg binary is ready: ${cacheManager.ffmpegPath}`);
     } else {
-        console.log('⚠️ [FFmpeg] FFmpeg/FFprobe binaries not fully set up. (Will be downloaded automatically by CacheManager)');
+        console.log(`ℹ️ [FFmpeg] System/bundle FFmpeg path: ${cacheManager.ffmpegPath} (will be prepared automatically if needed)`);
     }
 
-    // 5. Check Commands
+    // 6. Check Commands
     if (commandsData && commandsData.length > 0) {
         console.log(`✅ [Commands] Loaded ${commandsData.length} commands successfully.`);
     } else {
@@ -270,7 +257,6 @@ async function runStartupCheck() {
     return allGood;
 }
 
-// เริ่มการทำงานของบอท
 (async () => {
     const isReady = await runStartupCheck();
     if (!isReady) {

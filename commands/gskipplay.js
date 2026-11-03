@@ -22,7 +22,7 @@ module.exports = {
             return interaction.reply({ embeds: [embed], ephemeral: true });
         }
 
-        let query = interaction.options.getString('query');
+        const query = interaction.options.getString('query');
         await interaction.deferReply();
 
         let player = kazagumo.players.get(interaction.guild.id);
@@ -35,35 +35,9 @@ module.exports = {
             });
         }
 
-        let result = await kazagumo.search(query, {
-            requester: interaction.user,
-            engine: query.startsWith('http') ? undefined : 'youtube'
+        const result = await kazagumo.search(query, {
+            requester: interaction.user
         });
-
-        // หากหาใน youtube ปกติไม่เจอ ให้ลองหาใน youtube_music
-        if (!result.tracks.length && !query.startsWith('http')) {
-            result = await kazagumo.search(query, {
-                requester: interaction.user,
-                engine: 'youtube_music'
-            });
-        }
-
-        // หากยังหาไม่เจอ ให้ลองลบวงเล็บหรือคำต่อท้ายออกแล้วหาใหม่
-        if (!result.tracks.length && !query.startsWith('http')) {
-            const cleanQuery = query.replace(/\[.*?\]|\(.*?\)|【.*?】|MV|Official|Music Video|Audio|Lyrics/gi, '').replace(/\s+/g, ' ').trim();
-            if (cleanQuery && cleanQuery !== query) {
-                result = await kazagumo.search(cleanQuery, {
-                    requester: interaction.user,
-                    engine: 'youtube'
-                });
-                if (!result.tracks.length) {
-                    result = await kazagumo.search(cleanQuery, {
-                        requester: interaction.user,
-                        engine: 'youtube_music'
-                    });
-                }
-            }
-        }
 
         if (!result.tracks.length) {
             embed.setDescription('❌ หาเพลงไม่เจอค่ะ! (ลองลบคำว่า Official/MV ออก หรือพิมพ์แค่ชื่อเพลงสั้นๆ ดูนะคะ) 😿');
@@ -72,24 +46,27 @@ module.exports = {
 
         if (result.type === 'PLAYLIST') {
             for (let i = result.tracks.length - 1; i >= 0; i--) {
-                player.queue.unshift(result.tracks[i]); // ยัดลงคิวบนสุด (Reverse order to maintain playlist order)
+                player.queue.unshift(result.tracks[i]);
             }
-            player.skip(); // ข้ามเพลงปัจจุบัน
+            if (player.playing) {
+                player.skip();
+            } else {
+                player.play();
+            }
             embed.setDescription(`⏭️ จัดเพลย์ลิสต์ใหม่ให้ด่วนจี๋! ข้ามไปเล่นเพลย์ลิสต์ **${result.playlistName}** ให้แล้วค่ะ 💃✨`);
             await interaction.followUp({ embeds: [embed] });
         } else {
             const track = result.tracks[0];
-            
-            // ข้ามเพลงปัจจุบันแล้วเล่นเพลงนี้ทันที
             player.queue.unshift(track);
-            player.skip();
+            
+            if (player.playing) {
+                player.skip();
+            } else {
+                player.play();
+            }
 
             embed.setDescription(`⏭️ ด่วนทันใจ! ข้ามเพลงเดิมแล้วเปิดเพลง **${track.title}** ให้แล้วนะคะ โยกกก 🎧💋`);
             await interaction.followUp({ embeds: [embed] });
-        }
-
-        if (!player.playing && !player.paused) {
-            player.play();
         }
     }
 };

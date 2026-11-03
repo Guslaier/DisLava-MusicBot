@@ -21,7 +21,7 @@ module.exports = {
         }
 
         const formatTime = (ms) => {
-            if (!ms) return '00:00';
+            if (!ms || ms < 0) return '00:00';
             const seconds = Math.floor((ms / 1000) % 60);
             const minutes = Math.floor((ms / (1000 * 60)) % 60);
             const hours = Math.floor((ms / (1000 * 60 * 60)) % 24);
@@ -32,13 +32,14 @@ module.exports = {
         const currentPosition = formatTime(player.position);
         const totalLength = track.isStream ? '🔴 LIVE' : formatTime(track.length);
         
-        // จำลองแถบเวลาเล่นเพลง (Progress Bar)
+        // Progress Bar with safe bounds clamping
         const progressBarLength = 15;
         let progress = 0;
         if (!track.isStream && track.length > 0) {
             progress = Math.round((player.position / track.length) * progressBarLength);
         }
-        const progressBar = '▬'.repeat(progress) + '🔘' + '▬'.repeat(progressBarLength - progress);
+        const clampedProgress = Math.min(progressBarLength, Math.max(0, isNaN(progress) ? 0 : progress));
+        const progressBar = '▬'.repeat(clampedProgress) + '🔘' + '▬'.repeat(progressBarLength - clampedProgress);
 
         const currentTitle = track.title ? track.title.replace(/\[/g, '(').replace(/\]/g, ')') : "Unknown";
         embed.setTitle('🎧 กำลังเล่นเพลงนี้อยู่ค่ะ')

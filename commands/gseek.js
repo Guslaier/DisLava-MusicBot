@@ -34,7 +34,6 @@ module.exports = {
                 timeMs = (parts[0] * 3600 + parts[1] * 60 + parts[2]) * 1000;
             }
         } else {
-            // ถือว่าเป็นวินาที
             timeMs = Number(timeInput) * 1000;
         }
 
@@ -43,13 +42,14 @@ module.exports = {
             return interaction.reply({ embeds: [embed], ephemeral: true });
         }
 
-        if (timeMs > player.queue.current.length) {
+        if (player.queue.current.length > 0 && timeMs > player.queue.current.length) {
             embed.setDescription('❌ เวลาเกินความยาวเพลงค่ะ! กรอซะทะลุเพลงเลยนะตัวเธอ 😅');
             return interaction.reply({ embeds: [embed], ephemeral: true });
         }
 
-        player.seek(timeMs);
+        await interaction.deferReply();
+        await player.seek(timeMs);
         embed.setDescription(`⏩ วาร์ปให้แล้วค่ะ! กรอเพลงไปยังเวลา **${timeInput}** ตามคำขอเป๊ะๆ ✨`);
-        return interaction.reply({ embeds: [embed] });
+        return interaction.followUp({ embeds: [embed] });
     }
 };

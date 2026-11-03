@@ -31,8 +31,12 @@ module.exports = {
             return interaction.reply({ embeds: [embed], ephemeral: true });
         }
 
-        // ดึงเพลงออกจากคิวตามตำแหน่ง (index คือ position - 1) และยัดกลับเข้าไปข้างบนสุด
-        const trackToJump = player.queue.splice(position - 1, 1)[0];
+        const trackToJump = player.queue.remove(position - 1);
+        if (!trackToJump) {
+            embed.setDescription('❌ ไม่สามารถดึงเพลงออกจากคิวได้ค่ะ');
+            return interaction.reply({ embeds: [embed], ephemeral: true });
+        }
+
         player.queue.unshift(trackToJump);
 
         embed.setDescription(`⬆️ วีไอพีสุดๆ! ดันเพลง **${trackToJump.title}** แซงคิวขึ้นมาเป็นเพลงต่อไปให้แล้วค่ะ 💅✨`);

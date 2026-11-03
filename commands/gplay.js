@@ -28,7 +28,7 @@ module.exports = {
             return interaction.reply({ embeds: [embed], ephemeral: true });
         }
 
-        let query = interaction.options.getString('query');
+        const query = interaction.options.getString('query');
         const top = interaction.options.getBoolean('top');
         await interaction.deferReply();
 
@@ -42,35 +42,10 @@ module.exports = {
             });
         }
 
-        let result = await kazagumo.search(query, {
-            requester: interaction.user,
-            engine: query.startsWith('http') ? undefined : 'youtube'
+        // Fast Single-Pass Search with built-in YouTube Anti-Ban and SoundCloud Fallback
+        const result = await kazagumo.search(query, {
+            requester: interaction.user
         });
-
-        // หากหาใน youtube ปกติไม่เจอ ให้ลองหาใน youtube_music
-        if (!result.tracks.length && !query.startsWith('http')) {
-            result = await kazagumo.search(query, {
-                requester: interaction.user,
-                engine: 'youtube_music'
-            });
-        }
-
-        // หากยังหาไม่เจอ ให้ลองลบวงเล็บหรือคำต่อท้ายออกแล้วหาใหม่
-        if (!result.tracks.length && !query.startsWith('http')) {
-            const cleanQuery = query.replace(/\[.*?\]|\(.*?\)|【.*?】|MV|Official|Music Video|Audio|Lyrics/gi, '').replace(/\s+/g, ' ').trim();
-            if (cleanQuery && cleanQuery !== query) {
-                result = await kazagumo.search(cleanQuery, {
-                    requester: interaction.user,
-                    engine: 'youtube'
-                });
-                if (!result.tracks.length) {
-                    result = await kazagumo.search(cleanQuery, {
-                        requester: interaction.user,
-                        engine: 'youtube_music'
-                    });
-                }
-            }
-        }
 
         if (!result.tracks.length) {
             embed.setDescription('❌ หาเพลงไม่เจอค่ะ! (ลองลบคำว่า Official/MV ออก หรือพิมพ์แค่ชื่อเพลงสั้นๆ ดูนะคะ) 😿');
@@ -98,11 +73,9 @@ module.exports = {
             try {
                 await player.play();
             } catch (error) {
-                console.error('gplay play error:', error);
-                return interaction.editReply('❌ เกิดข้อผิดพลาดในการเริ่มเล่นเพลงค่ะ');
+                console.error('[gplay] Play error:', error.message);
+                return interaction.followUp({ content: '❌ เกิดข้อผิดพลาดในการเริ่มเล่นเพลงค่ะ', ephemeral: true });
             }
-        } else if (player.playing) {
-            player._preCacheNextTrack?.();
         }
     }
 };

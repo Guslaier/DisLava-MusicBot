@@ -28,7 +28,12 @@ module.exports = {
             return interaction.reply({ embeds: [embed], ephemeral: true });
         }
 
-        const removedTrack = player.queue.splice(position - 1, 1)[0];
+        const removedTrack = player.queue.remove(position - 1);
+        if (!removedTrack) {
+            embed.setDescription('❌ ไม่สามารถลบเพลงออกจากคิวได้ค่ะ');
+            return interaction.reply({ embeds: [embed], ephemeral: true });
+        }
+
         embed.setDescription(`🗑️ ชึบ! ลบเพลง **${removedTrack.title}** ออกจากคิวให้แล้วค่ะ ตามใจคนฟังสุดๆ ✂️💕`);
         return interaction.reply({ embeds: [embed] });
     }
