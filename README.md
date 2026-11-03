@@ -21,23 +21,43 @@ It features local audio caching, direct Opus stream encoding, smart search, play
 ## Key Features
 
 - **Standalone Architecture**: 100% pure Node.js runtime. No Java runtime or Lavalink server required.
+- **Ultra-Light Footprint**: Optimized memory consumption (<30-50MB RAM baseline) with zero memory leaks.
 - **Fast Playback & Caching**: Streams audio directly via `yt-dlp` and `ffmpeg-static` (Ogg Opus) with local disk caching for instant replays and loops.
 - **Auto Cache Management**: Automatically purges old cached tracks to optimize disk storage.
+- **Isolated VPN Tunnel Egress**: Supports ProtonVPN/OpenVPN isolated policy routing (`--source-address`) for full YouTube access without altering the host default gateway or endangering SSH access.
+- **Dynamic Free Proxy Pool**: Auto-scrapes and benchmarks public regional proxies (TH/SG/MY/JP/HK) with automated 6-hour blacklists on anti-bot detection.
+- **Circuit Breaker & SoundCloud Bypass**: Features an automatic YouTube circuit breaker that transparently falls back to SoundCloud streaming when datacenter IPs are blocked.
 - **Search & Playlist Support**: Supports direct YouTube URLs, search queries, and playlists (up to 25 items queued seamlessly).
 - **Advanced Queue System**: Supports queue insertion (`/gplay top`), queue jumping (`/gjump`), immediate skip-play (`/gskipplay`), and previous track recall (`/gprevious`).
 - **Comprehensive Playback Controls**: Pause, resume, seek, volume adjust, loop (single track / entire queue), and shuffle.
-- **YouTube Anti-Bot Bypass**: Supports local `cookies.txt` authentication and custom `PROXY_URL` to bypass YouTube IP bans and bot detection.
-- **Startup Diagnostics**: Automatically runs a pre-flight checklist on boot to verify tokens, binaries, and cookie validity.
+- **Startup Diagnostics**: Automatically runs a pre-flight checklist on boot to verify tokens, binaries, and network configuration.
 - **Auto Disconnect**: Automatically disconnects from voice channels when idle or when all members leave.
 - **Hot-Reload Commands**: Admins can use `/gupdate` to reload all Slash commands instantly without restarting the bot process.
 - **Aesthetic UI**: Formatted with clean Hot Pink (`#FF69B4`) Discord Embeds.
 
 ---
 
+## Environment Configuration (.env)
+
+All bot behavior, network egress, and VPN options are controlled via `.env`:
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `DISCORD_TOKEN` | *Required* | Your Discord Bot Token from Discord Developer Portal. |
+| `ENABLE_VPN` | `true` | Enable isolated VPN tunnel egress via `tun0` interface. |
+| `VPN_SOURCE_IP` | *Auto* | Manual override for VPN source IP. If blank, auto-detected from `tun0` or `/root/vpn/vpn_ip.txt`. |
+| `VPN_USERNAME` | *Optional* | OpenVPN credentials for auto-provisioning `/root/vpn/auth.txt`. |
+| `VPN_PASSWORD` | *Optional* | OpenVPN password for auto-provisioning `/root/vpn/auth.txt`. |
+| `ENABLE_FREE_PROXY` | `false` | Enable background discovery and benchmark of public regional proxies. |
+| `PROXY_URL` | *Optional* | Static VIP proxy URL (e.g. `http://user:pass@host:port`). |
+| `USE_IPV6` | `true` | Force IPv6 egress when no VPN or proxy is present. |
+
+---
+
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) (Version 16.11.0 or higher)
-- [PM2](https://pm2.keymetrics.io/) (Optional, for 24/7 background process management: `npm install pm2 -g`)
+- [PM2](https://pm2.keymetrics.io/) (Recommended for 24/7 background process management: `npm install pm2 -g`)
 - Discord Bot Token (Obtain from the [Discord Developer Portal](https://discord.com/developers/applications))
 
 ---
@@ -60,10 +80,6 @@ It features local audio caching, direct Opus stream encoding, smart search, play
      ```env
      DISCORD_TOKEN=your_discord_bot_token_here
      ```
-   - (Optional) If you are using a free host and experiencing YouTube IP bans, configure a proxy:
-     ```env
-     PROXY_URL=http://your-residential-proxy:port
-     ```
 
 3. **yt-dlp Binary Setup**
    Ensure the `yt-dlp` binary located in `bin/` has execution permissions:
@@ -72,9 +88,20 @@ It features local audio caching, direct Opus stream encoding, smart search, play
    ```
    *(Note: `ffmpeg` and `ffprobe` binaries are automatically downloaded to `bin/ffmpeg-bundle/` dynamically upon first startup!)*
 
-4. **YouTube Authentication (Bypassing "Sign in" Error)**
-   To play songs from YouTube seamlessly, you must extract cookies from your local browser (using extensions like "Get cookies.txt LOCALLY") and upload it to the root directory of the bot as `cookies.txt`.
-   The Startup Diagnostic will automatically verify if your cookie is valid on boot!
+4. **Network & Anti-Ban Options (Recommended)**
+   - **Option A (Best - Isolated VPN Egress)**:
+     Install OpenVPN and connect using `--route-nopull` so the default route remains untouched:
+     ```bash
+     ENABLE_VPN=true
+     ```
+   - **Option B (Static Proxy)**:
+     ```bash
+     PROXY_URL=http://your-proxy-address:port
+     ```
+   - **Option C (Free Proxy Pool)**:
+     ```bash
+     ENABLE_FREE_PROXY=true
+     ```
 
 ---
 
@@ -99,13 +126,13 @@ pm2 status
 
 ## Slash Commands
 
-### 🎵 Playback
+### Playback
 - `/gplay <query> [top]` - Play a song from title or URL (optional `top` to queue as next song)
 - `/gpause` - Pause the current playback
 - `/gresume` - Resume paused playback
 - `/gstop` - Stop playback, clear queue, and leave voice channel
 
-### 📑 Queue Management
+### Queue Management
 - `/gqueue` - View current playback queue and pagination
 - `/gskip` - Skip current song
 - `/gskipplay <query>` - Skip current song and immediately play the new song
@@ -114,17 +141,24 @@ pm2 status
 - `/gloop <mode>` - Set loop mode (`Off`, `Track`, `Queue`)
 - `/gclear` - Clear all pending tracks from the queue
 
-### ⚙️ Advanced Control
+### Advanced Control
 - `/gseek <time>` - Seek to timestamp (e.g. `01:30` or `90`)
 - `/gjump <position>` - Jump a specific queued song to play next
 - `/gremove <position>` - Remove a specific track from queue
 
-### ℹ️ Info & Utility
+### System & Diagnostics
+- `/gstats` - Real-time statistics: RAM RSS/Heap, Uptime, VPN/Proxy Egress status, Circuit Breaker state
+- `/gproxy status` - View proxy pool metrics, active count, and latency
+- `/gproxy test` - Benchmark current egress against YouTube anti-bot immediately
+- `/gproxy blacklist` - List currently blacklisted proxies
+- `/gproxy clear` - Clear proxy blacklist
+
+### Info & Utility
 - `/gnowplaying` - View song progress and detailed track info
 - `/glyrics` - Search lyrics for the playing track
 - `/ghelp` - Show all commands and help guide
 
-### 🛡️ Admin Only
+### Admin Only
 - `/gvolume <amount>` - Adjust bot playback volume (0-150%)
 - `/gupdate` - Reload all command files and register Slash Commands without restarting
 
