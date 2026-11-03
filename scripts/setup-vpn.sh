@@ -57,3 +57,4 @@ systemctl daemon-reload
 echo "VPN service created successfully."
 echo "Place your proton.ovpn (with 'route-nopull') and auth.txt in /root/vpn/"
 echo "Then enable and start with: systemctl enable --now protonvpn-isolated.service"
+

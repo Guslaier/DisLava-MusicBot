@@ -88,20 +88,36 @@ All bot behavior, network egress, and VPN options are controlled via `.env`:
    ```
    *(Note: `ffmpeg` and `ffprobe` binaries are automatically downloaded to `bin/ffmpeg-bundle/` dynamically upon first startup!)*
 
-4. **Network & Anti-Ban Options (Recommended)**
-   - **Option A (Best - Isolated VPN Egress)**:
-     Install OpenVPN and connect using `--route-nopull` so the default route remains untouched:
-     ```bash
-     ENABLE_VPN=true
-     ```
-   - **Option B (Static Proxy)**:
-     ```bash
-     PROXY_URL=http://your-proxy-address:port
-     ```
-   - **Option C (Free Proxy Pool)**:
-     ```bash
-     ENABLE_FREE_PROXY=true
-     ```
+4. **Network & Anti-Ban Options (Do I need OpenVPN?)**
+
+   OpenVPN is **completely optional**. Choose your setup based on your hosting environment:
+
+   - **Scenario 1: Running on a Home PC / Residential IP**
+     - You **do NOT need OpenVPN**. Residential IPs are not blocked by YouTube.
+     - In `.env`, set:
+       ```env
+       ENABLE_VPN=false
+       ```
+     - Run `node index.js` and play music directly.
+
+   - **Scenario 2: Running on a Cloud VPS without VPN (Zero-Config Fallback)**
+     - If your VPS IP is blocked by YouTube and you do not want to setup a VPN:
+       ```env
+       ENABLE_VPN=false
+       ```
+     - The bot's built-in **YouTube Circuit Breaker** will automatically detect datacenter restrictions and seamlessly stream tracks through high-bitrate SoundCloud bypass without any extra setup.
+
+   - **Scenario 3: Running on a Cloud VPS with Isolated VPN (Recommended for Maximum Speed)**
+     - If you want 100% native YouTube audio streams at full download speeds (16+ MB/s) on a datacenter VPS, use our automated 1-command isolated VPN installer:
+       ```bash
+       sudo bash scripts/setup-vpn.sh
+       ```
+     - Place your `proton.ovpn` (with `route-nopull` enabled) and `auth.txt` inside `/root/vpn/`.
+     - In `.env`, set:
+       ```env
+       ENABLE_VPN=true
+       ```
+     - **Safety Guarantee:** The setup script utilizes Linux Policy Routing (Table 100) and binds traffic solely to `tun0`. It **never alters the host default gateway**, meaning your active SSH session will **never disconnect or be locked out**.
 
 ---
 
