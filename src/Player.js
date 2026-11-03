@@ -134,6 +134,7 @@ class Player {
                 this.playing = true;
                 this.paused = false;
                 this.playbackStartTime = Date.now();
+                console.log(`[Player] Audio playback started for: "${this.queue.current?.title}"`);
             }
         });
 
@@ -228,7 +229,7 @@ class Player {
             }
 
             // Direct Real-time Streaming
-            const stream = await CacheManager.createTrackStream(track);
+            const stream = await CacheManager.createTrackStream(track, 0, this.volume);
 
             if (token !== this._playToken) {
                 if (stream && stream.kill) {
@@ -240,14 +241,8 @@ class Player {
             this.currentProcess = stream;
 
             const resource = createAudioResource(stream, {
-                inputType: StreamType.OggOpus,
-                inlineVolume: true
+                inputType: StreamType.OggOpus
             });
-
-            // Persist user-selected volume across tracks
-            if (resource.volume) {
-                resource.volume.setVolume(this.volume / 100);
-            }
 
             this.currentResource = resource;
             this.audioPlayer.play(resource);
@@ -308,8 +303,8 @@ class Player {
 
     setVolume(volume) {
         this.volume = volume;
-        if (this.currentResource && this.currentResource.volume) {
-            this.currentResource.volume.setVolume(this.volume / 100);
+        if (this.playing && this.queue.current) {
+            this.seek(this.position);
         }
     }
 
@@ -327,18 +322,13 @@ class Player {
             }
 
             const seekSeconds = Math.max(0, Math.floor(positionMs / 1000));
-            const stream = await CacheManager.createTrackStream(this.queue.current, seekSeconds);
+            const stream = await CacheManager.createTrackStream(this.queue.current, seekSeconds, this.volume);
 
             this.currentProcess = stream;
 
             const resource = createAudioResource(stream, {
-                inputType: StreamType.OggOpus,
-                inlineVolume: true
+                inputType: StreamType.OggOpus
             });
-
-            if (resource.volume) {
-                resource.volume.setVolume(this.volume / 100);
-            }
 
             this.currentResource = resource;
             this.position = positionMs;
