@@ -193,17 +193,17 @@ class QueueManager extends EventEmitter {
         // --- Case 1: Direct URL provided ---
         if (isUrl) {
             let targetUrl = cleanQuery;
+            const ytMatch = cleanQuery.match(/(?:v=|\/embed\/|\/17\/|\/v\/|https:\/\/youtu\.be\/|\/shorts\/)([a-zA-Z0-9_-]{11})/);
+            const singleVideoUrl = ytMatch ? `https://www.youtube.com/watch?v=${ytMatch[1]}` : null;
             const isPlaylist = cleanQuery.includes('list=') || cleanQuery.includes('/playlist');
-            if (!isPlaylist) {
-                const ytMatch = cleanQuery.match(/(?:v=|\/embed\/|\/17\/|\/v\/|https:\/\/youtu\.be\/|\/shorts\/)([a-zA-Z0-9_-]{11})/);
-                if (ytMatch) {
-                    targetUrl = `https://www.youtube.com/watch?v=${ytMatch[1]}`;
-                }
+
+            if (!isPlaylist && singleVideoUrl) {
+                targetUrl = singleVideoUrl;
             }
 
             const isYouTubeUrl = cleanQuery.includes('youtube.com') || cleanQuery.includes('youtu.be');
 
-            // FAST-TRACK: If circuit is OPEN and it's a YouTube URL, directly use oEmbed (<0.5s)
+            // FAST-TRACK: If circuit is OPEN and it's a YouTube single video URL, directly use oEmbed (<0.5s)
             if (isYouTubeUrl && !isPlaylist && youtubeCircuit.isOpen()) {
                 console.log('[QueueManager] YouTube circuit open. Instant oEmbed metadata bypass...');
                 const oembedData = await this._fetchYouTubeOEmbed(targetUrl);
@@ -217,21 +217,29 @@ class QueueManager extends EventEmitter {
 
             let data = await this._fetchYtDlpJson(targetUrl);
 
+            // If playlist extraction failed or returned 0 items, graceful fallback to the single video ID
+            if ((!data || (data._type === 'playlist' && (!data.entries || data.entries.length === 0))) && singleVideoUrl) {
+                console.log(`[QueueManager] Playlist extraction missed/blocked. Graceful fallback to single video: ${singleVideoUrl}`);
+                data = await this._fetchYouTubeOEmbed(singleVideoUrl) || await this._fetchYtDlpJson(singleVideoUrl);
+            }
+
             // Fallback to oEmbed if yt-dlp metadata failed on YouTube URL
-            if (!data && isYouTubeUrl && !isPlaylist) {
+            if (!data && isYouTubeUrl) {
                 console.log('[QueueManager] yt-dlp blocked on URL. Using YouTube oEmbed anti-ban bypass...');
-                data = await this._fetchYouTubeOEmbed(targetUrl);
+                data = await this._fetchYouTubeOEmbed(singleVideoUrl || targetUrl);
             }
 
             if (data) {
                 if (data._type === 'playlist' && data.entries && data.entries.length > 0) {
                     const validEntries = data.entries.filter(e => e && (e.id || e.url) && e.title && !e.title.includes('[Private video]') && !e.title.includes('[Deleted video]'));
-                    const tracks = validEntries.slice(0, 25).map(e => new Track(e, requester));
-                    return {
-                        type: 'PLAYLIST',
-                        playlistName: data.title || 'Playlist',
-                        tracks
-                    };
+                    if (validEntries.length > 0) {
+                        const tracks = validEntries.slice(0, 25).map(e => new Track(e, requester));
+                        return {
+                            type: 'PLAYLIST',
+                            playlistName: data.title || 'Playlist',
+                            tracks
+                        };
+                    }
                 }
                 return {
                     type: 'TRACK',
@@ -261,13 +269,27 @@ class QueueManager extends EventEmitter {
             }
         }
 
-        // Primary: YouTube Search (fast flat metadata search ~1.5s)
-        let data = await this._fetchYtDlpJson(`ytsearch5:${cleanQuery}`);
+        let data = null;
 
-        // If YouTube search failed or returned 0 entries, search SoundCloud
-        if (!data || !data.entries || data.entries.length === 0) {
-            console.log(`[QueueManager] YouTube search missed or blocked. Falling back to SoundCloud for: "${searchKeyword}"`);
+        // If YouTube Circuit is OPEN, fast-track directly to SoundCloud search (<2s)
+        if (youtubeCircuit.isOpen()) {
+            console.log(`[QueueManager] Circuit OPEN -> Fast-tracking search directly to SoundCloud for: "${searchKeyword}"`);
             data = await this._fetchYtDlpJson(`scsearch5:${searchKeyword}`);
+        } else {
+            // Primary: YouTube Search (fast flat metadata search ~1.5s)
+            data = await this._fetchYtDlpJson(`ytsearch5:${cleanQuery}`);
+
+            // If YouTube search failed or returned 0 entries, search SoundCloud
+            if (!data || !data.entries || data.entries.length === 0) {
+                console.log(`[QueueManager] YouTube search missed or blocked. Falling back to SoundCloud for: "${searchKeyword}"`);
+                data = await this._fetchYtDlpJson(`scsearch5:${searchKeyword}`);
+            }
+        }
+
+        // If still 0 entries, retry SoundCloud with sanitized query
+        if ((!data || !data.entries || data.entries.length === 0) && sanitized && sanitized !== cleanQuery) {
+            console.log(`[QueueManager] Secondary search attempt with sanitized keyword: "${sanitized}"`);
+            data = await this._fetchYtDlpJson(`scsearch5:${sanitized}`);
         }
 
         if (data && data.entries && data.entries.length > 0) {
