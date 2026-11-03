@@ -172,6 +172,7 @@ class CacheManager {
 
         // 1. Play from cached file if present (<0.1s latency)
         if (this.isCached(identifier)) {
+            console.log(`[CacheManager:Stream] Cache HIT for "${track.title}" (Serving from disk)`);
             return this._streamFromDisk(targetPath, seekSeconds, volume);
         }
 
@@ -180,6 +181,7 @@ class CacheManager {
         // 2. FAST PATH: If YouTube circuit is OPEN, do not waste time attempting YouTube!
         // Immediately pipe from SoundCloud (latency ~2-3s).
         if (isYouTube && youtubeCircuit.isOpen()) {
+            console.log(`[CacheManager:Stream] Circuit OPEN -> Fast-tracking "${track.title}" directly via SoundCloud pipe`);
             return this._trySoundCloudFallback(track, seekSeconds, volume);
         }
 
@@ -306,6 +308,7 @@ class CacheManager {
                     proxyManager.reportSuccess(activeProxy, Date.now() - startTime);
                 }
                 track.realSource = isFallback ? 'SoundCloud (Bypass Fallback)' : (track.uri && track.uri.includes('soundcloud.com') ? 'SoundCloud (Direct)' : 'YouTube (Direct)');
+                console.log(`[CacheManager:Stream] First audio packet received for "${track.title}" in ${Date.now() - startTime}ms | Real Source: ${track.realSource}`);
                 if (streamTimeout) {
                     clearTimeout(streamTimeout);
                     streamTimeout = null;

@@ -185,6 +185,9 @@ class QueueManager extends EventEmitter {
             return { type: 'SEARCH', tracks: [] };
         }
 
+        const searchStartTime = Date.now();
+        console.log(`[Search:Start] Query: "${cleanQuery}" | Engine: ${options.engine || 'auto'}`);
+
         const isUrl = cleanQuery.startsWith('http://') || cleanQuery.startsWith('https://');
 
         // --- Case 1: Direct URL provided ---
@@ -268,12 +271,14 @@ class QueueManager extends EventEmitter {
         }
 
         if (data && data.entries && data.entries.length > 0) {
+            console.log(`[Search:Done] Query: "${cleanQuery}" | Found ${data.entries.length} tracks in ${Date.now() - searchStartTime}ms`);
             return {
                 type: 'SEARCH',
                 tracks: data.entries.map(e => new Track(e, requester))
             };
         }
 
+        console.log(`[Search:Miss] Query: "${cleanQuery}" | 0 tracks found in ${Date.now() - searchStartTime}ms`);
         return { type: 'SEARCH', tracks: [] };
     }
 

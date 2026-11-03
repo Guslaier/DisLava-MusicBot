@@ -326,6 +326,8 @@ client.on('interactionCreate', async interaction => {
         return;
     }
 
+    console.log(`[Interaction] /${interaction.commandName} | User: ${interaction.user.tag} (${interaction.user.id}) | Guild: "${interaction.guild?.name || interaction.guildId}"`);
+
     try {
         await command.run(client, interaction, kazagumo);
     } catch (error) {

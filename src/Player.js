@@ -229,7 +229,8 @@ class Player {
                 if (token !== this._playToken) return;
             }
 
-            console.log(`[Player] Preparing stream: "${track.title}"`);
+            const streamPrepStart = Date.now();
+            console.log(`[Player] Preparing stream: "${track.title}" (Guild: ${this.guildId})`);
 
             if (this.currentProcess) {
                 try { this.currentProcess.kill(); } catch {}
@@ -255,6 +256,7 @@ class Player {
             this.currentResource = resource;
             this.audioPlayer.play(resource);
             this._starting = false;
+            console.log(`[Player] Audio resource dispatched to voice channel in ${Date.now() - streamPrepStart}ms: "${track.title}"`);
             this.manager.emit('playerStart', this, track);
             this._preCacheNextTrack();
         } catch (error) {
