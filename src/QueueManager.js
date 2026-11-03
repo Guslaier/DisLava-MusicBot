@@ -70,7 +70,7 @@ class QueueManager extends EventEmitter {
                 const args = [
                     '-J',
                     '--flat-playlist',
-                    '--playlist-items', '1:50',
+                    '--playlist-items', '1:25',
                     '--no-warnings',
                     '--no-playlist-reverse'
                 ];
@@ -198,7 +198,7 @@ class QueueManager extends EventEmitter {
             if (data) {
                 if (data._type === 'playlist' && data.entries && data.entries.length > 0) {
                     const validEntries = data.entries.filter(e => e && (e.id || e.url) && e.title && !e.title.includes('[Private video]') && !e.title.includes('[Deleted video]'));
-                    const tracks = validEntries.map(e => new Track(e, requester));
+                    const tracks = validEntries.slice(0, 25).map(e => new Track(e, requester));
                     return {
                         type: 'PLAYLIST',
                         playlistName: data.title || 'Playlist',
