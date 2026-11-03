@@ -220,6 +220,7 @@ class CacheManager {
             // Detect if stream started outputting audio bytes without consuming Ogg headers
             stream.once('data', (chunk) => {
                 hasOutput = true;
+                track.realSource = isFallback ? 'SoundCloud (Bypass Fallback)' : (track.uri && track.uri.includes('soundcloud.com') ? 'SoundCloud (Direct)' : 'YouTube (Direct)');
                 if (streamTimeout) {
                     clearTimeout(streamTimeout);
                     streamTimeout = null;
@@ -379,6 +380,7 @@ class CacheManager {
                         resolve();
                     });
                 });
+                track.realSource = track.uri && track.uri.includes('soundcloud.com') ? 'SoundCloud (Direct)' : 'YouTube (Direct)';
             } catch (err) {
                 // Try SoundCloud fallback download
                 const fallback = this._getSoundCloudFallback(track);
@@ -390,6 +392,8 @@ class CacheManager {
                             resolve();
                         });
                     });
+                    track.realSource = 'SoundCloud (Bypass Fallback)';
+                    console.log(`[CacheManager] 🔀 YouTube blocked. Successfully streamed from SoundCloud (Bypass): "${track.title}"`);
                 } else {
                     throw err;
                 }

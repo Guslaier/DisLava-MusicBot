@@ -57,6 +57,7 @@ const kazagumo = new QueueManager(client);
 
 // Event เมื่อเริ่มเล่นเพลง
 kazagumo.on("playerStart", async (player, track) => {
+    console.log(`[Player] 🎧 Now Playing: "${track?.title}" | Real Source: ${track?.realSource || (track?.uri?.includes('soundcloud.com') ? 'SoundCloud' : 'YouTube')}`);
     if (!player.textId) return;
     const channel = client.channels.cache.get(player.textId);
     if (!channel) return;

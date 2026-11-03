@@ -48,8 +48,27 @@ function createNowPlayingCard(player, track) {
     const channelName = voiceChannel ? voiceChannel.name : 'Voice Channel';
     const membersCount = voiceChannel ? voiceChannel.members.filter(m => !m.user.bot).size : 1;
 
-    const isSoundCloud = track.uri && track.uri.includes('soundcloud.com');
-    const sourceBadge = isSoundCloud ? '🟢 SoundCloud' : '🔴 YouTube';
+    let sourceBadge = '🔴 YouTube';
+    let sourceDetail = '';
+
+    if (track.realSource) {
+        if (track.realSource.includes('Bypass')) {
+            sourceBadge = '🟠 SoundCloud (Bypass)';
+            sourceDetail = '📡 **แหล่งที่มาเสียงจริง:** `🟠 SoundCloud (Bypass IP Block)`\n';
+        } else if (track.realSource.includes('SoundCloud')) {
+            sourceBadge = '🟠 SoundCloud';
+            sourceDetail = '📡 **แหล่งที่มาเสียงจริง:** `🟠 SoundCloud (Direct)`\n';
+        } else {
+            sourceBadge = '🔴 YouTube';
+            sourceDetail = '📡 **แหล่งที่มาเสียงจริง:** `🔴 YouTube (Direct)`\n';
+        }
+    } else if (track.uri && track.uri.includes('soundcloud.com')) {
+        sourceBadge = '🟠 SoundCloud';
+        sourceDetail = '📡 **แหล่งที่มาเสียงจริง:** `🟠 SoundCloud (Direct)`\n';
+    } else {
+        sourceBadge = '🔴 YouTube';
+        sourceDetail = '📡 **แหล่งที่มาเสียงจริง:** `🔴 YouTube`\n';
+    }
 
     let loopBadge = '🔁 Off';
     if (player.loop === 'track') loopBadge = '🔂 Track';
@@ -68,6 +87,7 @@ function createNowPlayingCard(player, track) {
         .setURL(track.uri || 'https://discord.com')
         .setDescription(
             `**${safeAuthor}**\n\n` +
+            `${sourceDetail}` +
             `\`${sourceBadge}\`  \`⚡ 320kbps\`  \`${loopBadge}\`\n\n` +
             `\`${timeCurrent}\` ${progressVisual} \`${timeTotal}\``
         )
