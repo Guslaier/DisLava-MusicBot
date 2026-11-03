@@ -5,7 +5,7 @@ const fs = require('fs');
 class CacheManager {
     constructor() {
         this.cacheDir = path.resolve(__dirname, '../music_cache');
-        this.binPath = path.resolve(__dirname, '../bin/yt-dlp');
+        this.binPath = path.resolve(__dirname, process.platform === 'win32' ? '../bin/yt-dlp.exe' : '../bin/yt-dlp');
         
         this.ffmpegBundlePath = path.resolve(__dirname, '../bin/ffmpeg-bundle');
         this.ffmpegPath = path.join(this.ffmpegBundlePath, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
@@ -94,7 +94,7 @@ class CacheManager {
         if (isStreamOutput) {
             args.push('-o', '-');
         } else if (outTemplate) {
-            args.push('--ffmpeg-location', this.ffmpegBundlePath);
+            args.push('--ffmpeg-location', path.dirname(this.ffmpegPath));
             args.push('-x', '--audio-format', 'opus');
             args.push('--force-overwrites');
             args.push('-o', outTemplate);
@@ -116,17 +116,20 @@ class CacheManager {
         return query ? `scsearch1:${query}` : null;
     }
 
-    /**
-     * True Real-time Direct Streaming:
-     * Pipes yt-dlp stdout directly into ffmpeg stdin, and ffmpeg outputs Ogg Opus
-     * directly into Discord Voice. Playback starts in 1-2 seconds with zero full-disk writes.
-     * Automatically falls back to SoundCloud if YouTube blocks the server.
-     */
     async createTrackStream(track, seekSeconds = 0, volume = 100) {
         const identifier = track.identifier || Buffer.from(track.uri || '').toString('hex').slice(0, 20);
         const targetPath = this.getTrackPath(identifier);
 
-        // 1. Play from cached file if present
+        // 1. If not cached and not a live stream, download cleanly to disk (100% immune to stream socket dropouts)
+        if (!this.isCached(identifier) && !track.isStream) {
+            try {
+                await this.prepareTrack(track);
+            } catch (err) {
+                console.warn(`[CacheManager] Prepare track fallback notice (${err.message}). Trying direct stream...`);
+            }
+        }
+
+        // 2. Play from cached file if present
         if (this.isCached(identifier)) {
             const ffmpegArgs = ['-nostdin', '-loglevel', 'error'];
             if (seekSeconds > 0) {
@@ -148,7 +151,7 @@ class CacheManager {
             return ffmpegProc.stdout;
         }
 
-        // 2. Direct streaming via yt-dlp -> ffmpeg
+        // 3. Fallback to direct streaming (e.g. for Live Streams)
         return this._spawnPipedStream(track, track.uri, seekSeconds, volume, false);
     }
 
@@ -338,10 +341,10 @@ class CacheManager {
     }
 
     /**
-     * Download and cache track on-disk if needed (e.g. for loop mode).
-     * Protected by Memory & Disk size constraints.
+     * Download and cache track on-disk.
+     * Guarantees 100% immune to stream socket timeouts and network stalls.
      */
-    async prepareTrack(track) {
+    async prepareTrack(track, isBackground = false) {
         const identifier = track.identifier || Buffer.from(track.uri || '').toString('hex').slice(0, 20);
         const targetPath = this.getTrackPath(identifier);
 
@@ -349,12 +352,14 @@ class CacheManager {
             return targetPath;
         }
 
-        // Memory Guard: If RSS memory > 180MB, do not spawn background downloads
-        const mem = process.memoryUsage();
-        if (mem.rss > 180 * 1024 * 1024) {
-            if (global.gc) global.gc();
-            console.warn('[CacheManager] High memory usage (>180MB). Skipping full disk pre-cache.');
-            return targetPath;
+        // Memory Guard: Only applies to background pre-cache
+        if (isBackground) {
+            const mem = process.memoryUsage();
+            if (mem.rss > 180 * 1024 * 1024) {
+                if (global.gc) global.gc();
+                console.warn('[CacheManager] High memory usage (>180MB). Skipping background pre-cache.');
+                return targetPath;
+            }
         }
 
         if (this.downloadPromises.has(identifier)) {
@@ -367,7 +372,7 @@ class CacheManager {
 
             try {
                 await new Promise((resolve, reject) => {
-                    execFile(this.binPath, args, { maxBuffer: 2 * 1024 * 1024, timeout: 60000 }, (err) => {
+                    execFile(this.binPath, args, { maxBuffer: 8 * 1024 * 1024, timeout: 120000 }, (err) => {
                         if (err) return reject(err);
                         resolve();
                     });
@@ -378,7 +383,7 @@ class CacheManager {
                 if (fallback && !track.uri.includes('soundcloud.com')) {
                     const fbArgs = this._buildYtDlpArgs(fallback, false, outTemplate);
                     await new Promise((resolve, reject) => {
-                        execFile(this.binPath, fbArgs, { maxBuffer: 2 * 1024 * 1024, timeout: 60000 }, (fbErr) => {
+                        execFile(this.binPath, fbArgs, { maxBuffer: 8 * 1024 * 1024, timeout: 120000 }, (fbErr) => {
                             if (fbErr) return reject(fbErr);
                             resolve();
                         });

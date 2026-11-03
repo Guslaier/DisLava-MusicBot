@@ -1,9 +1,11 @@
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
-const { Client, GatewayIntentBits, Options, Collection, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, Options, Collection, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, MessageFlags } = require('discord.js');
 const QueueManager = require('./src/QueueManager');
 const cacheManager = require('./src/CacheManager');
+const { createNowPlayingCard } = require('./src/helpers/musicCardHelper');
+const favoriteManager = require('./src/helpers/favoriteManager');
 
 const client = new Client({
     intents: [
@@ -44,7 +46,7 @@ for (const file of commandFiles) {
     const command = require(filePath);
     if ('data' in command && 'run' in command) {
         client.commands.set(command.data.name, command);
-        commandsData.push(command.data);
+        commandsData.push(typeof command.data.toJSON === 'function' ? command.data.toJSON() : command.data);
     } else {
         console.log(`[WARNING] The command at ${filePath} is missing a required "data" or "run" property.`);
     }
@@ -54,17 +56,25 @@ for (const file of commandFiles) {
 const kazagumo = new QueueManager(client);
 
 // Event เมื่อเริ่มเล่นเพลง
-kazagumo.on("playerStart", (player, track) => {
+kazagumo.on("playerStart", async (player, track) => {
     if (!player.textId) return;
     const channel = client.channels.cache.get(player.textId);
     if (!channel) return;
 
-    const embed = new EmbedBuilder()
-        .setColor('#3498db')
-        .setTitle('Now Playing')
-        .setDescription(`**${track.title}**\n\nRequested by: <@${track.requester.id}>`);
+    if (player.nowPlayingMessage) {
+        try {
+            await player.nowPlayingMessage.delete().catch(() => {});
+        } catch {}
+        player.nowPlayingMessage = null;
+    }
 
-    channel.send({ embeds: [embed] }).catch(() => { });
+    try {
+        const cardData = createNowPlayingCard(player, track);
+        const msg = await channel.send(cardData);
+        player.nowPlayingMessage = msg;
+    } catch (err) {
+        console.error('[playerStart] Error sending now playing card:', err.message);
+    }
 });
 
 // Event เมื่อเพลงติดขัด
@@ -108,7 +118,7 @@ kazagumo.on("playerEmpty", player => {
     if (global.gc) global.gc();
 });
 
-client.on('ready', async () => {
+client.on('clientReady', async () => {
     console.log(`✅ Logged in as ${client.user.tag} (Ultra-Light Engine)!`);
 
     // Clean old cache at startup and sweep every 15 minutes (max 50MB quota)
@@ -135,18 +145,176 @@ client.on('guildUnavailable', guild => {
 });
 
 client.on('interactionCreate', async interaction => {
+    // 1. Handle interactive music player buttons
+    if (interaction.isButton()) {
+        const customId = interaction.customId;
+        if (!customId.startsWith('music_') && !customId.startsWith('vol_')) return;
+
+        const player = kazagumo.players.get(interaction.guildId);
+        if (!player || !player.playing || !player.queue.current) {
+            return interaction.reply({
+                content: '❌ ไม่มีเพลงที่กำลังเล่นอยู่ตอนนี้ค่ะ',
+                ephemeral: true
+            });
+        }
+
+        const voiceChannel = interaction.member?.voice?.channel;
+        if (!voiceChannel || voiceChannel.id !== player.voiceId) {
+            return interaction.reply({
+                content: '❌ ตัวเธอต้องเข้าห้องเสียงเดียวกับบอทก่อนนะคะ ถึงจะกดควบคุมได้! 🥺',
+                flags: MessageFlags.Ephemeral
+            });
+        }
+
+        switch (customId) {
+            case 'music_shuffle': {
+                player.queue.shuffle();
+                return interaction.reply({
+                    content: '🔀 สลับลำดับคิวเพลงเรียบร้อยแล้วค่ะ!',
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+            case 'music_previous': {
+                if (!player.queue.previous) {
+                    return interaction.reply({
+                        content: '❌ ไม่มีเพลงก่อนหน้านี้ในประวัติเลยค่ะ',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                await player.playPrevious();
+                return interaction.followUp({
+                    content: `⏪ ย้อนกลับไปเล่นเพลง **${player.queue.current?.title}** ให้แล้วค่ะ!`
+                });
+            }
+            case 'music_pause_resume': {
+                const isPaused = player.pause(!player.paused);
+                try {
+                    const cardData = createNowPlayingCard(player, player.queue.current);
+                    await interaction.message.edit(cardData).catch(() => {});
+                } catch {}
+                return interaction.reply({
+                    content: isPaused ? '⏸️ พักการเล่นเพลงชั่วคราวแล้วค่ะ' : '▶️ เล่นเพลงต่อเรียบร้อยค่ะ!',
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+            case 'music_skip': {
+                await interaction.reply({
+                    content: '⏭️ ข้ามเพลงไปเพลงถัดไปให้แล้วค่ะ!',
+                    flags: MessageFlags.Ephemeral
+                });
+                player.skip();
+                return;
+            }
+            case 'music_loop': {
+                const newLoop = player.cycleLoop();
+                let loopText = 'ปิดการวนลูป (Loop: Off)';
+                if (newLoop === 'track') loopText = 'วนเพลงปัจจุบัน (Loop: Track)';
+                else if (newLoop === 'queue') loopText = 'วนทั้งคิว (Loop: Queue)';
+                try {
+                    const cardData = createNowPlayingCard(player, player.queue.current);
+                    await interaction.message.edit(cardData).catch(() => {});
+                } catch {}
+                return interaction.reply({
+                    content: `🔁 เปลี่ยนโหมดเป็น: **${loopText}** เรียบร้อยค่ะ`,
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+            case 'music_queue': {
+                const queue = player.queue;
+                const embed = new EmbedBuilder().setColor('#FF69B4');
+                const currentTitle = queue.current?.title || 'Unknown';
+                let desc = `**🎧 กำลังเล่น:** [${currentTitle}](${queue.current?.uri})\n\n`;
+                if (queue.length === 0) {
+                    desc += 'ไม่มีเพลงรอในคิวแล้วค่ะ สั่งเพลงเพิ่มได้เลยน้า~';
+                } else {
+                    desc += `**คิวรอเล่น (${queue.length} เพลง):**\n`;
+                    const preview = queue.slice(0, 10);
+                    preview.forEach((t, i) => {
+                        desc += `**${i + 1}.** [${t.title}](${t.uri}) - <@${t.requester.id}>\n`;
+                    });
+                    if (queue.length > 10) {
+                        desc += `*...และอีก ${queue.length - 10} เพลง*`;
+                    }
+                }
+                embed.setTitle('📋 คิวเพลงปัจจุบัน').setDescription(desc);
+                return interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+            }
+            case 'music_lyrics': {
+                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                const track = player.queue.current;
+                const lyricsFinder = require('lyrics-finder');
+                const cleanTitle = (track.title || '').replace(/ *\([^)]*\) */g, '').replace(/ *\[[^\]]*]/g, '');
+                const author = track.author && track.author !== 'Unknown' ? track.author : '';
+                let lyrics = await lyricsFinder(author, cleanTitle) || await lyricsFinder(cleanTitle, '');
+                if (!lyrics) {
+                    return interaction.followUp({
+                        content: `❌ หาเนื้อเพลงสำหรับ **${cleanTitle}** ไม่เจอเลยค่ะ 🥺`,
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+                if (lyrics.length > 4000) lyrics = lyrics.slice(0, 3995) + '...';
+                const embed = new EmbedBuilder()
+                    .setColor('#FF69B4')
+                    .setTitle(`🎤 เนื้อเพลง: ${cleanTitle}`)
+                    .setDescription(lyrics);
+                return interaction.followUp({ embeds: [embed], flags: MessageFlags.Ephemeral });
+            }
+            case 'music_favorite': {
+                const track = player.queue.current;
+                const added = favoriteManager.addFavorite(interaction.user.id, track);
+                if (added) {
+                    return interaction.reply({
+                        content: `💖 บันทึกเพลง **${track.title}** ลงในรายการเพลงโปรดของคุณแล้วค่ะ! เรียกฟังได้ด้วย \`/gfav play\``,
+                        flags: MessageFlags.Ephemeral
+                    });
+                } else {
+                    return interaction.reply({
+                        content: `ℹ️ เพลง **${track.title}** อยู่ในรายการเพลงโปรดของคุณอยู่แล้วค่ะ!`,
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+            }
+            case 'music_volume': {
+                const row = new ActionRowBuilder().addComponents(
+                    new ButtonBuilder().setCustomId('vol_30').setLabel('30%').setStyle(ButtonStyle.Secondary),
+                    new ButtonBuilder().setCustomId('vol_60').setLabel('60%').setStyle(ButtonStyle.Secondary),
+                    new ButtonBuilder().setCustomId('vol_100').setLabel('100%').setStyle(ButtonStyle.Primary),
+                    new ButtonBuilder().setCustomId('vol_130').setLabel('130%').setStyle(ButtonStyle.Danger)
+                );
+                return interaction.reply({
+                    content: `🔊 เลือกระดับเสียงด่วนที่ต้องการปรับ (ปัจจุบัน: **${player.volume}%**):`,
+                    components: [row],
+                    flags: MessageFlags.Ephemeral
+                });
+            }
+            case 'vol_30':
+            case 'vol_60':
+            case 'vol_100':
+            case 'vol_130': {
+                const volNum = parseInt(customId.replace('vol_', ''), 10);
+                player.setVolume(volNum);
+                return interaction.update({
+                    content: `🔊 ปรับระดับเสียงเป็น **${volNum}%** เรียบร้อยค่ะ!`,
+                    components: []
+                });
+            }
+        }
+    }
+
+    // 2. Handle Slash Commands
     if (!interaction.isChatInputCommand()) return;
     if (!interaction.inGuild()) {
         return interaction.reply({
             embeds: [new EmbedBuilder().setColor('#FF69B4').setDescription('❌ อ๊ะๆ! ใช้ได้เฉพาะในเซิร์ฟเวอร์เท่านั้นนะคะที่รัก 💕')],
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
         });
     }
     if (!interaction.guild) {
         console.error(`[GuildCache] Bot is not in guild ${interaction.guildId} — interaction received from guild the bot has left or cannot access.`);
         return interaction.reply({
             embeds: [new EmbedBuilder().setColor('#FF69B4').setDescription('❌ บอทไม่อยู่ในเซิร์ฟเวอร์นี้แล้วค่ะ กรุณาเชิญบอทใหม่ด้วยนะคะ 🥺')],
-            ephemeral: true
+            flags: MessageFlags.Ephemeral
         });
     }
 
@@ -166,9 +334,9 @@ client.on('interactionCreate', async interaction => {
             .setDescription('❌ ว้าย! มีข้อผิดพลาดนิดหน่อยตอนรันคำสั่งนี้ค่ะ ขออภัยด้วยนะคะ 🥺');
             
         if (interaction.replied || interaction.deferred) {
-            await interaction.followUp({ embeds: [errorEmbed], ephemeral: true });
+            await interaction.followUp({ embeds: [errorEmbed], flags: MessageFlags.Ephemeral });
         } else {
-            await interaction.reply({ embeds: [errorEmbed], ephemeral: true });
+            await interaction.reply({ embeds: [errorEmbed], flags: MessageFlags.Ephemeral });
         }
     }
 });
@@ -209,7 +377,7 @@ async function runStartupCheck() {
     }
 
     // 2. Check yt-dlp
-    const ytDlpPath = path.join(__dirname, 'bin', 'yt-dlp');
+    const ytDlpPath = path.join(__dirname, 'bin', process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
     if (fs.existsSync(ytDlpPath)) {
         console.log('✅ [yt-dlp] Binary found.');
     } else {

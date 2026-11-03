@@ -39,3 +39,6 @@ modes-global-roo-code.yaml
 music_cache/
 cookies.txt
 bin/ffmpeg-bundle
+
+bin/*.exe
+data/

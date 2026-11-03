@@ -1,23 +1,16 @@
 const fs = require('fs');
 const path = require('path');
-const { EmbedBuilder } = require('discord.js');
+const { EmbedBuilder, MessageFlags } = require('discord.js');
 
 module.exports = {
     data: {
         name: 'gupdate',
-        description: 'โหลดคำสั่งใหม่และอัปเดต Slash Commands (เฉพาะ Admin)',
-        default_member_permissions: '8' // 8 = Administrator
+        description: 'โหลดคำสั่งใหม่และอัปเดต Slash Commands ทั้งหมด'
     },
     run: async (client, interaction, kazagumo) => {
         const embed = new EmbedBuilder().setColor('#FF69B4');
 
-        // เช็คสิทธิ์ในกรณีที่ default_member_permissions ไม่ทำงาน
-        if (!interaction.member.permissions.has('Administrator')) {
-            embed.setDescription('❌ จุ๊ๆ! ตัวเธอไม่มีสิทธิ์ใช้คำสั่งนี้นะคะ (แอดมินเท่านั้นน้า) 🤫');
-            return interaction.reply({ embeds: [embed], ephemeral: true });
-        }
-
-        await interaction.deferReply({ ephemeral: true });
+        await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
         try {
             const commandsPath = path.join(__dirname, '../commands');
@@ -33,18 +26,18 @@ module.exports = {
                 const command = require(filePath);
                 if ('data' in command && 'run' in command) {
                     client.commands.set(command.data.name, command);
-                    newCommandsData.push(command.data);
+                    newCommandsData.push(typeof command.data.toJSON === 'function' ? command.data.toJSON() : command.data);
                 }
             }
 
             // อัปเดต Slash Commands ไปยัง Discord
             await client.application.commands.set(newCommandsData);
 
-            embed.setDescription('✅ รีเฟรชสเตทให้แล้วนะคะบอส! ระบบอัปเดตคำสั่งใหม่พร้อมลุยค่ะ ✨💋');
+            embed.setDescription('✅ รีเฟรชคำสั่งให้เรียบร้อยแล้วค่ะ! สมาชิกทุกคนสามารถใช้งานคำสั่งล่าสุดได้ทันที ✨💋');
             return interaction.followUp({ embeds: [embed] });
         } catch (error) {
             console.error(error);
-            embed.setDescription('❌ ว้าย! เกิดข้อผิดพลาดตอนอัปเดตระบบ ลองเช็คดูที่ Console หน่อยนะคะบอส 🥺');
+            embed.setDescription('❌ ว้าย! เกิดข้อผิดพลาดตอนอัปเดตระบบ ลองตรวจสอบ Console หน่อยนะคะ 🥺');
             return interaction.followUp({ embeds: [embed] });
         }
     }

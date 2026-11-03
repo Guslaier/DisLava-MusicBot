@@ -79,8 +79,10 @@ class Player {
         this.textId = options.textId;
         this.volume = typeof options.volume === 'number' ? options.volume : 100;
         this.loop = 'none'; // 'none' | 'track' | 'queue'
+        this.autoplay = false;
         this.paused = false;
         this.playing = false;
+        this.nowPlayingMessage = null;
         this._position = 0;
         this.playbackStartTime = 0;
 
@@ -167,6 +169,12 @@ class Player {
                 if (this.queue.length > 0) {
                     const nextTrack = this.queue.shift();
                     await this.playTrack(nextTrack);
+                } else if (this.autoplay && finishedTrack) {
+                    const played = await this._handleAutoplay(finishedTrack);
+                    if (!played) {
+                        this.queue.current = null;
+                        this.manager.emit('playerEmpty', this);
+                    }
                 } else {
                     this.queue.current = null;
                     this.manager.emit('playerEmpty', this);
@@ -313,6 +321,44 @@ class Player {
         return this.loop;
     }
 
+    cycleLoop() {
+        if (this.loop === 'none') this.loop = 'track';
+        else if (this.loop === 'track') this.loop = 'queue';
+        else this.loop = 'none';
+        return this.loop;
+    }
+
+    async playPrevious() {
+        if (!this.queue.previous) return false;
+        const prev = this.queue.previous;
+        if (this.queue.current) {
+            this.queue.unshift(this.queue.current);
+        }
+        await this.playTrack(prev);
+        return true;
+    }
+
+    async _handleAutoplay(lastTrack) {
+        try {
+            const query = `${lastTrack.author || ''} song`.trim() || `${lastTrack.title} related`;
+            const result = await this.manager.search(query, {
+                requester: lastTrack.requester
+            });
+
+            if (result && result.tracks && result.tracks.length > 0) {
+                const nextTrack = result.tracks.find(t => t.uri !== lastTrack.uri && t.identifier !== lastTrack.identifier) || result.tracks[0];
+                if (nextTrack) {
+                    console.log(`[Player] Autoplay queued: "${nextTrack.title}"`);
+                    await this.playTrack(nextTrack);
+                    return true;
+                }
+            }
+        } catch (err) {
+            console.warn('[Player] Autoplay failed:', err.message);
+        }
+        return false;
+    }
+
     async seek(positionMs) {
         if (!this.queue.current) return;
         try {
@@ -349,13 +395,17 @@ class Player {
             // Only prepare file if not already cached
             const identifier = nextTrack.identifier || Buffer.from(nextTrack.uri || '').toString('hex').slice(0, 20);
             if (!CacheManager.isCached(identifier)) {
-                CacheManager.prepareTrack(nextTrack).catch(() => {});
+                CacheManager.prepareTrack(nextTrack, true).catch(() => {});
             }
         }
     }
 
     destroy() {
         this.stop();
+        if (this.nowPlayingMessage) {
+            try { this.nowPlayingMessage.delete().catch(() => {}); } catch {}
+            this.nowPlayingMessage = null;
+        }
         if (this.connection) {
             try {
                 this.connection.destroy();

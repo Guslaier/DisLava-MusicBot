@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const Player = require('./Player');
 
-const binPath = path.resolve(__dirname, '../bin/yt-dlp');
+const binPath = path.resolve(__dirname, process.platform === 'win32' ? '../bin/yt-dlp.exe' : '../bin/yt-dlp');
 const cacheDir = path.resolve(__dirname, '../music_cache');
 
 class Track {
@@ -265,11 +265,13 @@ class QueueManager extends EventEmitter {
         // Path safety: only delete files inside the cache directory
         if (!cachePath.startsWith(cacheDir + path.sep)) return;
 
-        fs.unlink(cachePath, (err) => {
-            if (err && err.code !== 'ENOENT') {
-                console.error(`[QueueManager] Cache delete failed ${cachePath}:`, err.message);
-            }
-        });
+        setTimeout(() => {
+            fs.unlink(cachePath, (err) => {
+                if (err && err.code !== 'ENOENT' && err.code !== 'EBUSY') {
+                    console.error(`[QueueManager] Cache delete failed ${cachePath}:`, err.message);
+                }
+            });
+        }, 1500).unref();
     }
 }
 
