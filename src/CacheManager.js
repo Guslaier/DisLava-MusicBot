@@ -83,14 +83,15 @@ class CacheManager {
         const isSoundCloud = source.includes('soundcloud.com') || source.startsWith('scsearch');
         const cookiesPath = path.resolve(__dirname, '../cookies.txt');
         const hasCookies = fs.existsSync(cookiesPath);
-        // Only use proxy verified for YouTube, so unverified proxies do not stall requests
-        const activeProxy = isSoundCloud ? null : proxyManager.getYouTubeProxy();
         const useIPv6 = process.env.USE_IPV6 === 'true';
 
-        if (activeProxy) {
-            args.push('--proxy', activeProxy);
-        } else if (useIPv6 && !isSoundCloud) {
-            args.push('--force-ipv6');
+        if (!isSoundCloud) {
+            const netArgs = proxyManager.getNetworkArgs();
+            if (netArgs.length > 0) {
+                args.push(...netArgs);
+            } else if (useIPv6) {
+                args.push('--force-ipv6');
+            }
         }
 
         if (!isSoundCloud) {

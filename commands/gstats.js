@@ -26,9 +26,14 @@ module.exports = {
         const youtubeCircuit = require('../src/helpers/youtubeCircuit');
         const proxyStatus = proxyManager.getStatus();
         const circuitStatus = youtubeCircuit.getStatus();
-        const proxyBadge = proxyStatus.configured
-            ? (proxyStatus.isOnline ? `🟢 Smart Pool (${proxyStatus.activeCount} Live | 🚫 ${proxyStatus.blacklistCount || 0} Blocked | ${proxyStatus.bestLatency})` : '🔴 Pool Exhausted (Retrying)')
-            : '⚪ Direct (Bypass Mode)';
+        let proxyBadge = '⚪ Direct (Bypass Mode)';
+        if (proxyStatus.isVpn) {
+            proxyBadge = `🟢 ProtonVPN (${proxyStatus.vpnIp})`;
+        } else if (proxyStatus.configured) {
+            proxyBadge = proxyStatus.isOnline 
+                ? `🟢 Smart Pool (${proxyStatus.activeCount} Live | 🚫 ${proxyStatus.blacklistCount || 0} Blocked | ${proxyStatus.bestLatency})` 
+                : '🔴 Pool Exhausted (Retrying)';
+        }
 
         const embed = new EmbedBuilder()
             .setColor('#FF69B4')

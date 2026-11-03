@@ -300,7 +300,8 @@ class SmartProxyPool {
     async testProxyYouTube(proxyUrl, timeoutMs = 7000) {
         const start = Date.now();
         try {
-            const cmd = `"${this.binPath}" --no-warnings --socket-timeout 5 --no-playlist -g "https://www.youtube.com/watch?v=dQw4w9WgXcQ" --proxy "${proxyUrl}"`;
+            const netArg = proxyUrl.startsWith('--') ? proxyUrl : `--proxy "${proxyUrl}"`;
+            const cmd = `"${this.binPath}" --no-warnings --socket-timeout 5 --no-playlist -g "https://www.youtube.com/watch?v=dQw4w9WgXcQ" ${netArg}`;
             const { stdout } = await execAsync(cmd, { timeout: timeoutMs });
             const latency = Date.now() - start;
             if (stdout && stdout.trim().startsWith('http')) {

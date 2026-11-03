@@ -60,8 +60,8 @@ class YouTubeCircuit {
         this._probing = true;
         try {
             const proxy = typeof getProxyFn === 'function' ? getProxyFn() : null;
-            const proxyArg = proxy ? `--proxy "${proxy}"` : '';
-            const cmd = `"${binPath}" --no-warnings --socket-timeout 5 --no-playlist -g "https://www.youtube.com/watch?v=dQw4w9WgXcQ" ${proxyArg}`;
+            const netArg = proxy ? (proxy.startsWith('--') ? proxy : `--proxy "${proxy}"`) : '';
+            const cmd = `"${binPath}" --no-warnings --socket-timeout 5 --no-playlist -g "https://www.youtube.com/watch?v=dQw4w9WgXcQ" ${netArg}`;
             const { stdout } = await execAsync(cmd, { timeout: 8000 });
             if (stdout && stdout.trim().startsWith('http')) {
                 this.reset();

@@ -46,18 +46,19 @@ module.exports = {
 
         if (subcommand === 'test') {
             await interaction.deferReply();
-            const bestProxy = proxyManager.getProxyUrl();
-            if (!bestProxy) {
-                embed.setDescription('❌ ไม่มี Proxy ที่พร้อมใช้งานใน Pool ขณะนี้ค่ะ (บอทใช้ Direct/Bypass แทน)');
+            const targetArg = proxyManager.getNetworkArgString();
+            if (!targetArg) {
+                embed.setDescription('❌ ไม่มี VPN หรือ Proxy ที่พร้อมใช้งานในขณะนี้ค่ะ (บอทใช้ Direct/Bypass แทน)');
                 return interaction.followUp({ embeds: [embed] });
             }
 
-            const res = await proxyManager.testYouTube(bestProxy);
+            const res = await proxyManager.testYouTube(targetArg);
 
             if (res.ok) {
                 embed.setColor('#00FF00');
                 embed.setTitle('✅ ผลการทดสอบ: ผ่านฉลุย!');
-                embed.setDescription(`Proxy \`${bestProxy}\` ใช้งานดึงสตรีม YouTube ได้ปกติ\n⏱️ Latency: \`${res.latency}ms\``);
+                const targetName = proxyManager.isVpnActive() ? `ProtonVPN (${proxyManager.getVpnSourceIp()})` : targetArg;
+                embed.setDescription(`เครือข่าย \`${targetName}\` ใช้งานดึงสตรีม YouTube ได้ปกติ\n⏱️ Latency: \`${res.latency}ms\``);
             } else if (res.isBotBlock) {
                 embed.setColor('#FF0000');
                 embed.setTitle('🚫 ผลการทดสอบ: ติด YouTube Anti-Bot!');

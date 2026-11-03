@@ -423,7 +423,7 @@ async function runStartupCheck() {
 
     // 7. Initialize YouTube Circuit Breaker (Probe in background)
     const youtubeCircuit = require('./src/helpers/youtubeCircuit');
-    youtubeCircuit.startProbe(ytDlpPath, () => proxyManager.getYouTubeProxy());
+    youtubeCircuit.startProbe(ytDlpPath, () => proxyManager.getNetworkArgString());
 
     console.log('--------------------------------------\n');
     return allGood;

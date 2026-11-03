@@ -1,3 +1,5 @@
+const fs = require('fs');
+const os = require('os');
 const smartProxyPool = require('./smartProxyPool');
 
 class ProxyManager {
@@ -8,13 +10,77 @@ class ProxyManager {
         this.lastError = null;
     }
 
+    /**
+     * Resolves active VPN client IPv4 address if tun interface is up.
+     */
+    getVpnSourceIp() {
+        if (process.env.VPN_SOURCE_IP) {
+            return process.env.VPN_SOURCE_IP.trim();
+        }
+        try {
+            if (fs.existsSync('/root/vpn/vpn_ip.txt')) {
+                const ip = fs.readFileSync('/root/vpn/vpn_ip.txt', 'utf8').trim();
+                if (ip) return ip;
+            }
+        } catch {}
+        try {
+            const ifaces = os.networkInterfaces();
+            for (const name of Object.keys(ifaces)) {
+                if (/^tun\d+$/i.test(name)) {
+                    const ipv4 = ifaces[name].find(x => x.family === 'IPv4' || x.family === 4);
+                    if (ipv4 && ipv4.address) return ipv4.address;
+                }
+            }
+        } catch {}
+        return null;
+    }
+
+    isVpnActive() {
+        return !!this.getVpnSourceIp();
+    }
+
+    /**
+     * Returns network arguments for yt-dlp (VPN source address or proxy).
+     */
+    getNetworkArgs() {
+        const vpnIp = this.getVpnSourceIp();
+        if (vpnIp) {
+            return ['--source-address', vpnIp];
+        }
+        const proxy = this.getYouTubeProxy();
+        if (proxy) {
+            return ['--proxy', proxy];
+        }
+        return [];
+    }
+
+    /**
+     * Returns network arguments formatted as a CLI string.
+     */
+    getNetworkArgString() {
+        const vpnIp = this.getVpnSourceIp();
+        if (vpnIp) {
+            return `--source-address "${vpnIp}"`;
+        }
+        const proxy = this.getYouTubeProxy();
+        if (proxy) {
+            return `--proxy "${proxy}"`;
+        }
+        return '';
+    }
+
     async init() {
+        const vpnIp = this.getVpnSourceIp();
+        if (vpnIp) {
+            console.log(`[ProxyManager] [VPN] VPN Egress Active (Interface IP: ${vpnIp})`);
+        }
+
         // Initialize Smart Proxy Pool
         await smartProxyPool.init();
 
         if (this.configuredProxyUrl) {
             console.log(`[ProxyManager] Static VIP proxy configured: ${this.configuredProxyUrl}`);
-        } else {
+        } else if (!vpnIp) {
             console.log('[ProxyManager] Running in Dynamic Smart Proxy Pool mode.');
         }
     }
@@ -88,21 +154,26 @@ class ProxyManager {
     getStatus() {
         const poolStatus = smartProxyPool.getStatus();
         const best = poolStatus.bestProxy;
+        const vpnIp = this.getVpnSourceIp();
 
         return {
-            configured: poolStatus.activeCount > 0,
-            isOnline: poolStatus.activeCount > 0,
-            url: best || 'None',
+            isVpn: !!vpnIp,
+            vpnIp: vpnIp,
+            configured: !!vpnIp || poolStatus.activeCount > 0,
+            isOnline: !!vpnIp || poolStatus.activeCount > 0,
+            url: vpnIp ? `VPN: ${vpnIp}` : (best || 'None'),
             poolSize: poolStatus.total,
             activeCount: poolStatus.activeCount,
             blacklistCount: poolStatus.blacklistCount,
             bestScore: poolStatus.bestScore,
             bestLatency: poolStatus.bestLatency,
-            isYoutubeVerified: poolStatus.isYoutubeVerified,
+            isYoutubeVerified: !!vpnIp || poolStatus.isYoutubeVerified,
             blacklisted: poolStatus.blacklisted,
-            label: poolStatus.activeCount > 0 
-                ? `Pool Active (${poolStatus.activeCount} online | Best: ${best} [${poolStatus.bestLatency}]${poolStatus.isYoutubeVerified ? ' Verified' : ''})`
-                : 'Direct (Bypass Mode)'
+            label: vpnIp 
+                ? `ProtonVPN Tunnel (${vpnIp})`
+                : (poolStatus.activeCount > 0 
+                    ? `Pool Active (${poolStatus.activeCount} online | Best: ${best} [${poolStatus.bestLatency}]${poolStatus.isYoutubeVerified ? ' Verified' : ''})`
+                    : 'Direct (Bypass Mode)')
         };
     }
 }
