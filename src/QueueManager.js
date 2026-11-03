@@ -80,6 +80,7 @@ class QueueManager extends EventEmitter {
                 const cookiesPath = path.resolve(__dirname, '../cookies.txt');
                 const hasCookies = fs.existsSync(cookiesPath);
                 const useIPv6 = process.env.USE_IPV6 === 'true';
+                const activeProxy = (!isSoundCloud && !proxyManager.isVpnActive()) ? proxyManager.getYouTubeProxy() : null;
 
                 if (!isSoundCloud) {
                     const netArgs = proxyManager.getNetworkArgs();
