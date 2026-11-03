@@ -69,23 +69,26 @@ class CacheManager {
             '--no-cache-dir',
             '--no-playlist',
             '--no-warnings',
-            '--retries', '3',
-            '--fragment-retries', '3',
+            '--no-progress',
+            '--retries', '5',
+            '--fragment-retries', '5',
             '--retry-sleep', '1',
             '--buffer-size', '16K',
-            '-f', '251/bestaudio/best',
-            '--extractor-args', 'youtube:player_client=ios,android,web_embedded;player_skip=webpage,configs'
+            '-f', '251/bestaudio/best'
         ];
 
         const isSoundCloud = source.includes('soundcloud.com') || source.startsWith('scsearch');
+        const cookiesPath = path.resolve(__dirname, '../cookies.txt');
+        const hasCookies = fs.existsSync(cookiesPath);
 
         if (process.env.PROXY_URL && !isSoundCloud) {
             args.push('--proxy', process.env.PROXY_URL);
         }
 
-        const cookiesPath = path.resolve(__dirname, '../cookies.txt');
-        if (fs.existsSync(cookiesPath) && !isSoundCloud) {
+        if (hasCookies && !isSoundCloud) {
             args.push('--cookies', cookiesPath);
+        } else if (!isSoundCloud) {
+            args.push('--extractor-args', 'youtube:player_client=android,web');
         }
 
         if (isStreamOutput) {
@@ -171,16 +174,21 @@ class CacheManager {
 
             let hasOutput = false;
             let stderrBuffer = '';
+            let streamTimeout = null;
 
             ytdlpProc.stderr.on('data', (chunk) => {
                 stderrBuffer += chunk.toString();
-                if (stderrBuffer.length > 2000) stderrBuffer = stderrBuffer.slice(-2000);
+                if (stderrBuffer.length > 3000) stderrBuffer = stderrBuffer.slice(-3000);
             });
 
             const stream = ffmpegProc.stdout;
 
             // Combined kill helper for clean termination
             stream.kill = () => {
+                if (streamTimeout) {
+                    clearTimeout(streamTimeout);
+                    streamTimeout = null;
+                }
                 try { ytdlpProc.kill('SIGKILL'); } catch {}
                 try { ffmpegProc.kill('SIGKILL'); } catch {}
             };
@@ -188,6 +196,10 @@ class CacheManager {
             // Detect if stream started outputting audio bytes
             stream.once('data', () => {
                 hasOutput = true;
+                if (streamTimeout) {
+                    clearTimeout(streamTimeout);
+                    streamTimeout = null;
+                }
                 resolve(stream);
             });
 
@@ -213,6 +225,10 @@ class CacheManager {
             });
 
             ytdlpProc.on('close', async (code) => {
+                if (streamTimeout) {
+                    clearTimeout(streamTimeout);
+                    streamTimeout = null;
+                }
                 if (code !== 0 && !hasOutput) {
                     const isBotBan = stderrBuffer.includes('Sign in to confirm') || 
                                      stderrBuffer.includes('bot') || 
@@ -220,7 +236,10 @@ class CacheManager {
                                      stderrBuffer.includes('403') ||
                                      stderrBuffer.includes('Private video');
 
-                    console.warn(`[CacheManager] yt-dlp failed (code ${code})${isBotBan ? ' [YouTube Anti-Bot detected]' : ''}`);
+                    console.warn(`[CacheManager] yt-dlp exited (code ${code})${isBotBan ? ' [YouTube Anti-Bot detected]' : ''}`);
+                    if (stderrBuffer) {
+                        console.warn(`[CacheManager yt-dlp stderr]:\n${stderrBuffer.trim()}`);
+                    }
                     stream.kill();
 
                     if (!isFallback) {
@@ -237,10 +256,13 @@ class CacheManager {
                 }
             });
 
-            // Safety timeout: if no bytes within 8 seconds, check fallback
-            setTimeout(async () => {
+            // Allow up to 30s for proxy handshake and audio buffering
+            streamTimeout = setTimeout(async () => {
                 if (!hasOutput && !isFallback) {
-                    console.warn(`[CacheManager] Primary stream timed out for "${track.title}", trying SoundCloud fallback...`);
+                    console.warn(`[CacheManager] Primary stream timed out (30s limit) for "${track.title}"`);
+                    if (stderrBuffer) {
+                        console.warn(`[CacheManager yt-dlp stderr]:\n${stderrBuffer.trim()}`);
+                    }
                     stream.kill();
                     try {
                         const fallbackStream = await this._trySoundCloudFallback(track, seekSeconds);
@@ -249,7 +271,8 @@ class CacheManager {
                         reject(new Error(`Primary timed out and fallback failed: ${fbErr.message}`));
                     }
                 }
-            }, 8000).unref();
+            }, 30000);
+            streamTimeout.unref();
         });
     }
 

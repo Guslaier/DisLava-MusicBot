@@ -72,24 +72,26 @@ class QueueManager extends EventEmitter {
                     '--flat-playlist',
                     '--playlist-items', '1:25',
                     '--no-warnings',
-                    '--no-playlist-reverse',
-                    '--extractor-args', 'youtube:player_client=ios,android,web_embedded;player_skip=webpage,configs'
+                    '--no-playlist-reverse'
                 ];
 
                 const isSoundCloud = query.includes('soundcloud.com') || query.startsWith('scsearch');
+                const cookiesPath = path.resolve(__dirname, '../cookies.txt');
+                const hasCookies = fs.existsSync(cookiesPath);
 
                 if (process.env.PROXY_URL && !isSoundCloud) {
                     args.push('--proxy', process.env.PROXY_URL);
                 }
 
-                const cookiesPath = path.resolve(__dirname, '../cookies.txt');
-                if (fs.existsSync(cookiesPath) && !isSoundCloud) {
+                if (hasCookies && !isSoundCloud) {
                     args.push('--cookies', cookiesPath);
+                } else if (!isSoundCloud) {
+                    args.push('--extractor-args', 'youtube:player_client=android,web');
                 }
 
                 args.push(query);
 
-                execFile(binPath, args, { maxBuffer: 4 * 1024 * 1024, timeout: 15000, killSignal: 'SIGKILL' }, (err, stdout, stderr) => {
+                execFile(binPath, args, { maxBuffer: 4 * 1024 * 1024, timeout: 25000, killSignal: 'SIGKILL' }, (err, stdout, stderr) => {
                     this._activeSearches--;
                     this._processNextSearch();
 
