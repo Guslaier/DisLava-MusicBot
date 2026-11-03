@@ -386,17 +386,17 @@ async function runStartupCheck() {
         allGood = false;
     }
 
-    // 3. Check Proxy
-    if (process.env.PROXY_URL) {
-        process.stdout.write(`⏳ [Proxy] Testing proxy connection: ${process.env.PROXY_URL}... `);
-        try {
-            const exec = require('util').promisify(require('child_process').exec);
-            await exec(`curl -x "${process.env.PROXY_URL}" -I -s --connect-timeout 4 https://www.google.com`);
-            console.log('✅ Proxy is working!');
-        } catch (err) {
-            console.log(`\n❌ [Proxy] Proxy is OFFLINE or unreachable! Disabling proxy for this session.`);
-            delete process.env.PROXY_URL;
+    // 3. Initialize & Check Proxy with Auto-Recovery Health Monitor
+    const proxyManager = require('./src/helpers/proxyManager');
+    await proxyManager.init();
+    if (proxyManager.configuredProxyUrl) {
+        if (proxyManager.isOnline) {
+            console.log(`✅ [Proxy] Proxy is working: ${proxyManager.configuredProxyUrl}`);
+        } else {
+            console.log(`⚠️ [Proxy] Proxy is currently OFFLINE: ${proxyManager.configuredProxyUrl} (Auto-recovery polling every 45s active)`);
         }
+    } else {
+        console.log('ℹ️ [Proxy] No proxy configured. (Direct/Bypass mode)');
     }
 
     // 4. Check YouTube Auth & Anti-Bot Status (Fast 8s diagnostic)

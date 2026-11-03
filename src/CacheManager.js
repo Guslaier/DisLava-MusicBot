@@ -1,6 +1,7 @@
 const { execFile, spawn, execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const proxyManager = require('./helpers/proxyManager');
 
 class CacheManager {
     constructor() {
@@ -80,9 +81,10 @@ class CacheManager {
         const isSoundCloud = source.includes('soundcloud.com') || source.startsWith('scsearch');
         const cookiesPath = path.resolve(__dirname, '../cookies.txt');
         const hasCookies = fs.existsSync(cookiesPath);
+        const activeProxy = proxyManager.getProxyUrl();
 
-        if (process.env.PROXY_URL && !isSoundCloud) {
-            args.push('--proxy', process.env.PROXY_URL);
+        if (activeProxy && !isSoundCloud) {
+            args.push('--proxy', activeProxy);
         }
 
         if (!isSoundCloud) {

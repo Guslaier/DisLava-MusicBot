@@ -22,12 +22,19 @@ module.exports = {
         const activePlayers = kazagumo?.players?.size || 0;
         const totalGuilds = client.guilds.cache.size;
 
+        const proxyManager = require('../src/helpers/proxyManager');
+        const proxyStatus = proxyManager.getStatus();
+        const proxyBadge = proxyStatus.configured
+            ? (proxyStatus.isOnline ? '🟢 Online (Active)' : '🔴 Offline (Auto-Retrying)')
+            : '⚪ Direct (No Proxy)';
+
         const embed = new EmbedBuilder()
             .setColor('#FF69B4')
             .setTitle('📊 ข้อมูลสถิติและสถานะระบบ DisLava')
             .addFields(
                 { name: '⏱️ Uptime', value: `\`${uptimeStr}\``, inline: true },
                 { name: '🧠 RAM (RSS / Heap)', value: `\`${rssMB} MB / ${heapUsedMB} MB\``, inline: true },
+                { name: '🛡️ Proxy Egress', value: `\`${proxyBadge}\``, inline: true },
                 { name: '🎧 Active Players', value: `\`${activePlayers} ห้อง\``, inline: true },
                 { name: '🏰 Servers', value: `\`${totalGuilds} เซิร์ฟเวอร์\``, inline: true },
                 { name: '⚙️ Node.js / D.js', value: `\`${process.version} / v${djsVersion}\``, inline: true },

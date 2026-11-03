@@ -3,6 +3,7 @@ const { execFile } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const Player = require('./Player');
+const proxyManager = require('./helpers/proxyManager');
 
 const binPath = path.resolve(__dirname, process.platform === 'win32' ? '../bin/yt-dlp.exe' : '../bin/yt-dlp');
 const cacheDir = path.resolve(__dirname, '../music_cache');
@@ -78,9 +79,10 @@ class QueueManager extends EventEmitter {
                 const isSoundCloud = query.includes('soundcloud.com') || query.startsWith('scsearch');
                 const cookiesPath = path.resolve(__dirname, '../cookies.txt');
                 const hasCookies = fs.existsSync(cookiesPath);
+                const activeProxy = proxyManager.getProxyUrl();
 
-                if (process.env.PROXY_URL && !isSoundCloud) {
-                    args.push('--proxy', process.env.PROXY_URL);
+                if (activeProxy && !isSoundCloud) {
+                    args.push('--proxy', activeProxy);
                 }
 
                 if (!isSoundCloud) {
