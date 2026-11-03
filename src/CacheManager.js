@@ -82,6 +82,11 @@ class CacheManager {
         const cookiesPath = path.resolve(__dirname, '../cookies.txt');
         const hasCookies = fs.existsSync(cookiesPath);
         const activeProxy = proxyManager.getProxyUrl();
+        const useIPv6 = process.env.USE_IPV6 === 'true';
+
+        if (useIPv6 && !isSoundCloud) {
+            args.push('--force-ipv6');
+        }
 
         if (activeProxy && !isSoundCloud) {
             args.push('--proxy', activeProxy);
@@ -113,11 +118,17 @@ class CacheManager {
         const author = track.author || '';
         const cleanTitle = title
             .replace(/\[.*?\]|\(.*?\)|【.*?】|MV|Official|Music Video|Audio|Lyrics/gi, '')
-            .replace(/[|/\\#~!?@$%^&*_+<>{}=]/g, ' ')
+            .replace(/[-|/\\#~!?@$%^&*_+<>{}=]/g, ' ')
             .replace(/\s+/g, ' ')
             .trim();
-        const query = `${cleanTitle || title} ${author}`.trim();
-        return query ? `scsearch1:${query}` : null;
+
+        // Avoid appending generic channel names or record labels that break search
+        const isTopicOrLabel = /topic|gmm|rs|genie|records|music|vevo|i am/i.test(author);
+        let query = cleanTitle || title;
+        if (author && !isTopicOrLabel && !query.toLowerCase().includes(author.toLowerCase())) {
+            query = `${query} ${author}`;
+        }
+        return query ? `scsearch1:${query.trim()}` : null;
     }
 
     async createTrackStream(track, seekSeconds = 0, volume = 100) {
@@ -193,6 +204,7 @@ class CacheManager {
             ytdlpProc.stdout.pipe(ffmpegProc.stdin);
 
             let hasOutput = false;
+            let isHandled = false;
             let stderrBuffer = '';
             let ffmpegStderr = '';
             let streamTimeout = null;
@@ -219,9 +231,33 @@ class CacheManager {
                 try { ffmpegProc.kill('SIGKILL'); } catch {}
             };
 
+            const triggerFallbackOrReject = async (reason, isBotBan = false) => {
+                if (isHandled || hasOutput) return;
+                isHandled = true;
+
+                if (streamTimeout) {
+                    clearTimeout(streamTimeout);
+                    streamTimeout = null;
+                }
+                stream.kill();
+
+                if (!isFallback) {
+                    console.log(`[CacheManager] Auto-switching to SoundCloud stream for: ${track.title}${isBotBan ? ' (Anti-Bot detected)' : ''}`);
+                    try {
+                        const fallbackStream = await this._trySoundCloudFallback(track, seekSeconds, volume);
+                        return resolve(fallbackStream);
+                    } catch (fbErr) {
+                        return reject(new Error(`Stream failed: ${reason || fbErr.message}`));
+                    }
+                } else {
+                    return reject(new Error(`Stream failed: ${reason || 'Playback failed'}`));
+                }
+            };
+
             // Detect if stream started outputting audio bytes without consuming Ogg headers
             stream.once('data', (chunk) => {
                 hasOutput = true;
+                isHandled = true;
                 track.realSource = isFallback ? 'SoundCloud (Bypass Fallback)' : (track.uri && track.uri.includes('soundcloud.com') ? 'SoundCloud (Direct)' : 'YouTube (Direct)');
                 if (streamTimeout) {
                     clearTimeout(streamTimeout);
@@ -235,37 +271,15 @@ class CacheManager {
             // Handle premature failures
             ytdlpProc.on('error', async (err) => {
                 console.error(`[CacheManager] yt-dlp error on "${track.title}":`, err.message);
-                stream.kill();
-                if (!hasOutput && !isFallback) {
-                    try {
-                        const fallbackStream = await this._trySoundCloudFallback(track, seekSeconds, volume);
-                        return resolve(fallbackStream);
-                    } catch (fbErr) {
-                        return reject(fbErr);
-                    }
-                }
-                reject(err);
+                await triggerFallbackOrReject(err.message);
             });
 
             ffmpegProc.on('error', async (err) => {
                 console.error(`[CacheManager] ffmpeg error on "${track.title}":`, err.message);
-                stream.kill();
-                if (!hasOutput && !isFallback) {
-                    try {
-                        const fallbackStream = await this._trySoundCloudFallback(track, seekSeconds, volume);
-                        return resolve(fallbackStream);
-                    } catch (fbErr) {
-                        return reject(fbErr);
-                    }
-                }
-                reject(err);
+                await triggerFallbackOrReject(err.message);
             });
 
             ytdlpProc.on('close', async (code) => {
-                if (streamTimeout) {
-                    clearTimeout(streamTimeout);
-                    streamTimeout = null;
-                }
                 if (code !== 0 && !hasOutput) {
                     const isBotBan = stderrBuffer.includes('Sign in to confirm') || 
                                      stderrBuffer.includes('bot') || 
@@ -277,43 +291,16 @@ class CacheManager {
                     if (stderrBuffer) {
                         console.warn(`[CacheManager yt-dlp stderr]:\n${stderrBuffer.trim()}`);
                     }
-                    if (ffmpegStderr) {
-                        console.warn(`[CacheManager ffmpeg stderr]:\n${ffmpegStderr.trim()}`);
-                    }
-                    stream.kill();
-
-                    if (!isFallback) {
-                        console.log(`[CacheManager] Auto-switching to SoundCloud stream for: ${track.title}`);
-                        try {
-                            const fallbackStream = await this._trySoundCloudFallback(track, seekSeconds, volume);
-                            return resolve(fallbackStream);
-                        } catch (fbErr) {
-                            return reject(new Error(`Stream failed: ${stderrBuffer || fbErr.message}`));
-                        }
-                    } else {
-                        return reject(new Error(`Stream failed: ${stderrBuffer || 'Exit code ' + code}`));
-                    }
+                    await triggerFallbackOrReject(stderrBuffer || `yt-dlp exit code ${code}`, isBotBan);
                 }
             });
 
             ffmpegProc.on('close', async (code) => {
                 if (!hasOutput) {
-                    if (streamTimeout) {
-                        clearTimeout(streamTimeout);
-                        streamTimeout = null;
+                    if (ffmpegStderr) {
+                        console.warn(`[CacheManager ffmpeg stderr]:\n${ffmpegStderr.trim()}`);
                     }
-                    stream.kill();
-                    if (!isFallback) {
-                        console.log(`[CacheManager] ffmpeg closed before audio output. Falling back to SoundCloud for: ${track.title}`);
-                        try {
-                            const fallbackStream = await this._trySoundCloudFallback(track, seekSeconds, volume);
-                            return resolve(fallbackStream);
-                        } catch (fbErr) {
-                            return reject(new Error(`Stream failed: ${stderrBuffer || ffmpegStderr || fbErr.message}`));
-                        }
-                    } else {
-                        return reject(new Error(`Stream failed: ${stderrBuffer || ffmpegStderr || 'Exit code ' + code}`));
-                    }
+                    await triggerFallbackOrReject(ffmpegStderr || `ffmpeg exit code ${code}`);
                 }
             });
 
@@ -321,16 +308,7 @@ class CacheManager {
             streamTimeout = setTimeout(async () => {
                 if (!hasOutput && !isFallback) {
                     console.warn(`[CacheManager] Primary stream timed out (30s limit) for "${track.title}"`);
-                    if (stderrBuffer) {
-                        console.warn(`[CacheManager yt-dlp stderr]:\n${stderrBuffer.trim()}`);
-                    }
-                    stream.kill();
-                    try {
-                        const fallbackStream = await this._trySoundCloudFallback(track, seekSeconds, volume);
-                        resolve(fallbackStream);
-                    } catch (fbErr) {
-                        reject(new Error(`Primary timed out and fallback failed: ${fbErr.message}`));
-                    }
+                    await triggerFallbackOrReject('Primary stream timed out');
                 }
             }, 30000);
             streamTimeout.unref();

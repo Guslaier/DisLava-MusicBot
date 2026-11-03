@@ -80,6 +80,11 @@ class QueueManager extends EventEmitter {
                 const cookiesPath = path.resolve(__dirname, '../cookies.txt');
                 const hasCookies = fs.existsSync(cookiesPath);
                 const activeProxy = proxyManager.getProxyUrl();
+                const useIPv6 = process.env.USE_IPV6 === 'true';
+
+                if (useIPv6 && !isSoundCloud) {
+                    args.push('--force-ipv6');
+                }
 
                 if (activeProxy && !isSoundCloud) {
                     args.push('--proxy', activeProxy);
