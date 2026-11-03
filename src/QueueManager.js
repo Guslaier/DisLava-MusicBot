@@ -83,10 +83,12 @@ class QueueManager extends EventEmitter {
                     args.push('--proxy', process.env.PROXY_URL);
                 }
 
+                if (!isSoundCloud) {
+                    args.push('--extractor-args', 'youtube:player_client=android,ios');
+                }
+
                 if (hasCookies && !isSoundCloud) {
                     args.push('--cookies', cookiesPath);
-                } else if (!isSoundCloud) {
-                    args.push('--extractor-args', 'youtube:player_client=android,web');
                 }
 
                 args.push(query);
