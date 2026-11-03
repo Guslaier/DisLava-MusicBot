@@ -48,7 +48,7 @@ module.exports = {
             for (let i = result.tracks.length - 1; i >= 0; i--) {
                 player.queue.unshift(result.tracks[i]);
             }
-            if (player.playing) {
+            if (player.playing || player._starting) {
                 player.skip();
             } else {
                 player.play();
@@ -59,7 +59,7 @@ module.exports = {
             const track = result.tracks[0];
             player.queue.unshift(track);
             
-            if (player.playing) {
+            if (player.playing || player._starting) {
                 player.skip();
             } else {
                 player.play();

@@ -94,6 +94,7 @@ class Player {
         this._playToken = 0;
         this._advancing = false;
         this._starting = false; // in-flight guard
+        this._isSkipping = false;
 
         this._setupVoiceConnection(options);
         this._setupAudioPlayer();
@@ -137,57 +138,15 @@ class Player {
                 this.paused = false;
                 this.playbackStartTime = Date.now();
                 console.log(`[Player] Audio playback started for: "${this.queue.current?.title}"`);
+            } else if (newState.status === AudioPlayerStatus.Idle) {
+                this.playing = false;
             }
         });
 
         this.audioPlayer.on(AudioPlayerStatus.Idle, async () => {
             if (this._starting) return;
             if (this._advancing) return;
-            this._advancing = true;
-            try {
-                if (this.currentProcess) {
-                    try { this.currentProcess.kill(); } catch {}
-                    this.currentProcess = null;
-                }
-
-                const finishedTrack = this.queue.current;
-                this.playing = false;
-                this._position = 0;
-
-                if (finishedTrack) {
-                    this.queue.previous = finishedTrack;
-                    this.manager.emit('playerEnd', this, finishedTrack);
-
-                    if (this.loop === 'track') {
-                        await this.playTrack(finishedTrack);
-                        return;
-                    } else if (this.loop === 'queue') {
-                        this.queue.add(finishedTrack);
-                    }
-                }
-
-                if (this.queue.length > 0) {
-                    const nextTrack = this.queue.shift();
-                    await this.playTrack(nextTrack);
-                } else if (this.autoplay && finishedTrack) {
-                    const played = await this._handleAutoplay(finishedTrack);
-                    if (!played) {
-                        this.queue.current = null;
-                        this.manager.emit('playerEmpty', this);
-                    }
-                } else {
-                    this.queue.current = null;
-                    this.manager.emit('playerEmpty', this);
-                }
-            } catch (error) {
-                console.error('[Player] Idle advance error:', error);
-                this.manager.emit('playerException', this, this.queue.current, error);
-            } finally {
-                this._advancing = false;
-                if (this.audioPlayer.state.status === AudioPlayerStatus.Idle && this.queue.length > 0) {
-                    this.audioPlayer.emit(AudioPlayerStatus.Idle);
-                }
-            }
+            await this._advanceQueue();
         });
 
         this.audioPlayer.on('error', (error) => {
@@ -195,6 +154,55 @@ class Player {
             this.manager.emit('playerException', this, this.queue.current, error);
             this.skip();
         });
+    }
+
+    async _advanceQueue() {
+        if (this._advancing) return;
+        this._advancing = true;
+        try {
+            if (this.currentProcess) {
+                try { this.currentProcess.kill(); } catch {}
+                this.currentProcess = null;
+            }
+
+            const isSkip = this._isSkipping;
+            this._isSkipping = false;
+
+            const finishedTrack = this.queue.current;
+            this.playing = false;
+            this._position = 0;
+
+            if (finishedTrack) {
+                this.queue.previous = finishedTrack;
+                this.manager.emit('playerEnd', this, finishedTrack);
+
+                if (this.loop === 'track' && !isSkip) {
+                    await this.playTrack(finishedTrack);
+                    return;
+                } else if (this.loop === 'queue' && !isSkip) {
+                    this.queue.add(finishedTrack);
+                }
+            }
+
+            if (this.queue.length > 0) {
+                const nextTrack = this.queue.shift();
+                await this.playTrack(nextTrack);
+            } else if (this.autoplay && finishedTrack && !isSkip) {
+                const played = await this._handleAutoplay(finishedTrack);
+                if (!played) {
+                    this.queue.current = null;
+                    this.manager.emit('playerEmpty', this);
+                }
+            } else {
+                this.queue.current = null;
+                this.manager.emit('playerEmpty', this);
+            }
+        } catch (error) {
+            console.error('[Player] Advance error:', error);
+            this.manager.emit('playerException', this, this.queue.current, error);
+        } finally {
+            this._advancing = false;
+        }
     }
 
     get position() {
@@ -207,13 +215,8 @@ class Player {
     }
 
     async play() {
-        if (this.playing) return;
-        if (this.queue.length > 0) {
-            const track = this.queue.shift();
-            await this.playTrack(track);
-        } else if (this.queue.current) {
-            await this.playTrack(this.queue.current);
-        }
+        if (this.playing || this._starting || this._advancing) return;
+        await this._advanceQueue();
     }
 
     async playTrack(track) {
@@ -237,8 +240,14 @@ class Player {
                 this.currentProcess = null;
             }
 
-            // Direct Real-time Streaming
-            const stream = await CacheManager.createTrackStream(track, 0, this.volume);
+            // Direct real-time streaming with early process tracker
+            const stream = await CacheManager.createTrackStream(track, 0, this.volume, (proc) => {
+                if (token !== this._playToken) {
+                    try { proc.kill(); } catch {}
+                    return;
+                }
+                this.currentProcess = proc;
+            });
 
             if (token !== this._playToken) {
                 if (stream && stream.kill) {
@@ -255,7 +264,6 @@ class Player {
 
             this.currentResource = resource;
             this.audioPlayer.play(resource);
-            this._starting = false;
             console.log(`[Player] Audio resource dispatched to voice channel in ${Date.now() - streamPrepStart}ms: "${track.title}"`);
             this.manager.emit('playerStart', this, track);
             this._preCacheNextTrack();
@@ -266,11 +274,9 @@ class Player {
             this.playing = false;
             this.audioPlayer.stop();
         } finally {
-            if (this._starting) {
-                this._starting = false;
-                if (this.audioPlayer.state.status === AudioPlayerStatus.Idle && this.queue.length > 0) {
-                    this.audioPlayer.emit(AudioPlayerStatus.Idle);
-                }
+            this._starting = false;
+            if (token !== this._playToken && this.audioPlayer.state.status === AudioPlayerStatus.Idle && this.queue.length > 0) {
+                this._advanceQueue().catch(() => {});
             }
         }
     }
@@ -293,6 +299,7 @@ class Player {
     }
 
     skip() {
+        this._isSkipping = true;
         this._playToken++;
         if (this.currentProcess) {
             try { this.currentProcess.kill(); } catch {}
@@ -302,6 +309,7 @@ class Player {
     }
 
     stop() {
+        this._isSkipping = false;
         this._playToken++;
         if (this.currentProcess) {
             try { this.currentProcess.kill(); } catch {}
@@ -370,7 +378,9 @@ class Player {
             }
 
             const seekSeconds = Math.max(0, Math.floor(positionMs / 1000));
-            const stream = await CacheManager.createTrackStream(this.queue.current, seekSeconds, this.volume);
+            const stream = await CacheManager.createTrackStream(this.queue.current, seekSeconds, this.volume, (proc) => {
+                this.currentProcess = proc;
+            });
 
             this.currentProcess = stream;
 
@@ -388,6 +398,9 @@ class Player {
     }
 
     _preCacheNextTrack() {
+        const streamMode = (process.env.STREAM_MODE || 'auto').toLowerCase().trim();
+        if (streamMode === 'pipe') return;
+
         // Pre-cache only if RAM usage is healthy (<150MB) and loop mode is track
         const mem = process.memoryUsage();
         if (mem.rss > 150 * 1024 * 1024) return;

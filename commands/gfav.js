@@ -128,7 +128,7 @@ module.exports = {
             embed.setDescription(`💖 ขนมาให้ทั้งใจ! เพิ่มเพลงโปรด **${loadedCount}** เพลงลงในคิวเรียบร้อยแล้วค่ะ ปาร์ตี้เริ่มได้เลย! 💃✨`);
             await interaction.followUp({ embeds: [embed] });
 
-            if (!player.playing && !player.paused) {
+            if (!player.playing && !player._starting && !player.paused) {
                 try {
                     await player.play();
                 } catch (err) {

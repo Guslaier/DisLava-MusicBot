@@ -51,6 +51,7 @@ All bot behavior, network egress, and VPN options are controlled via `.env`:
 | `ENABLE_FREE_PROXY` | `false` | Enable background discovery and benchmark of public regional proxies. |
 | `PROXY_URL` | *Optional* | Static VIP proxy URL (e.g. `http://user:pass@host:port`). |
 | `USE_IPV6` | `true` | Force IPv6 egress when no VPN or proxy is present. |
+| `STREAM_MODE` | `auto` | Streaming engine mode: `auto` (hybrid), `pipe` (Direct live pipe, 0 disk cache), or `cache` (disk download first). |
 
 ---
 

@@ -146,7 +146,7 @@ class CacheManager {
         return res;
     }
 
-    _streamFromDisk(targetPath, seekSeconds = 0, volume = 100) {
+    _streamFromDisk(targetPath, seekSeconds = 0, volume = 100, onSpawn = null) {
         const ffmpegArgs = ['-nostdin', '-loglevel', 'error'];
         if (seekSeconds > 0) {
             ffmpegArgs.push('-ss', seekSeconds.toString());
@@ -164,17 +164,20 @@ class CacheManager {
         ffmpegProc.stdout.kill = () => {
             try { ffmpegProc.kill('SIGKILL'); } catch {}
         };
+        if (typeof onSpawn === 'function') {
+            onSpawn(ffmpegProc.stdout);
+        }
         return ffmpegProc.stdout;
     }
 
-    async createTrackStream(track, seekSeconds = 0, volume = 100) {
+    async createTrackStream(track, seekSeconds = 0, volume = 100, onSpawn = null) {
         const identifier = track.identifier || Buffer.from(track.uri || '').toString('hex').slice(0, 20);
         const targetPath = this.getTrackPath(identifier);
 
         // 1. Play from cached file if present (<0.1s latency)
         if (this.isCached(identifier)) {
             console.log(`[CacheManager:Stream] Cache HIT for "${track.title}" (Serving from disk)`);
-            return this._streamFromDisk(targetPath, seekSeconds, volume);
+            return this._streamFromDisk(targetPath, seekSeconds, volume, onSpawn);
         }
 
         const isYouTube = !track.uri?.includes('soundcloud.com');
@@ -183,37 +186,40 @@ class CacheManager {
         // Immediately pipe from SoundCloud (latency ~2-3s).
         if (isYouTube && youtubeCircuit.isOpen()) {
             console.log(`[CacheManager:Stream] Circuit OPEN -> Fast-tracking "${track.title}" directly via SoundCloud pipe`);
-            return this._trySoundCloudFallback(track, seekSeconds, volume);
+            return this._trySoundCloudFallback(track, seekSeconds, volume, onSpawn);
         }
 
-        // 3. Long tracks (>6 mins), live streams, or seeking: stream directly via live pipe (<2s latency)
+        const streamMode = (process.env.STREAM_MODE || 'auto').toLowerCase().trim();
         const durationSec = track.duration || (track.length ? Math.round(track.length / 1000) : 0);
-        if (track.isStream || durationSec > 360 || seekSeconds > 0) {
-            console.log(`[CacheManager:Stream] Live pipe stream for "${track.title}" (Duration: ${durationSec}s, Seek: ${seekSeconds}s)`);
-            return this._spawnPipedStream(track, track.uri, seekSeconds, volume, false);
+        const forcePipe = streamMode === 'pipe' || track.isStream || durationSec > 360 || seekSeconds > 0;
+
+        // 3. Direct Live Pipe mode or long tracks (>6 mins), live streams, seeking: stream directly via live pipe (<2s latency)
+        if (forcePipe) {
+            console.log(`[CacheManager:Stream] Live pipe stream for "${track.title}" (Mode: ${streamMode}, Duration: ${durationSec}s, Seek: ${seekSeconds}s)`);
+            return this._spawnPipedStream(track, track.uri, seekSeconds, volume, false, onSpawn);
         }
 
-        // 4. Standard tracks (<=6 mins): attempt fast disk cache for instant replay/loops
+        // 4. Standard tracks (<=6 mins) in auto or cache mode: attempt fast disk cache for instant replay/loops
         try {
-            await this.prepareTrack(track, false);
+            await this.prepareTrack(track, false, onSpawn);
             if (this.isCached(identifier)) {
-                return this._streamFromDisk(targetPath, seekSeconds, volume);
+                return this._streamFromDisk(targetPath, seekSeconds, volume, onSpawn);
             }
         } catch (err) {
             if (youtubeCircuit.constructor.isBotBlock(err.message)) {
                 console.warn(`[CacheManager] Anti-bot block detected: ${err.message}. Fast-switching to SoundCloud...`);
                 youtubeCircuit.trip(err.message);
-                return this._trySoundCloudFallback(track, seekSeconds, volume);
+                return this._trySoundCloudFallback(track, seekSeconds, volume, onSpawn);
             }
-            console.log(`[CacheManager] Disk caching timed out for "${track.title}". Streaming directly via live pipe...`);
-            return this._spawnPipedStream(track, track.uri, seekSeconds, volume, false);
+            console.log(`[CacheManager] Disk caching timed out or failed for "${track.title}". Streaming directly via live pipe...`);
+            return this._spawnPipedStream(track, track.uri, seekSeconds, volume, false, onSpawn);
         }
 
         // 5. Fallback to direct streaming (e.g. for Live Streams)
-        return this._spawnPipedStream(track, track.uri, seekSeconds, volume, false);
+        return this._spawnPipedStream(track, track.uri, seekSeconds, volume, false, onSpawn);
     }
 
-    _spawnPipedStream(track, sourceUri, seekSeconds = 0, volume = 100, isFallback = false) {
+    _spawnPipedStream(track, sourceUri, seekSeconds = 0, volume = 100, isFallback = false, onSpawn = null) {
         return new Promise((resolve, reject) => {
             const startTime = Date.now();
             const ytdlpArgs = this._buildYtDlpArgs(sourceUri, true);
@@ -275,6 +281,10 @@ class CacheManager {
                 try { ffmpegProc.kill('SIGKILL'); } catch {}
             };
 
+            if (typeof onSpawn === 'function') {
+                onSpawn(stream);
+            }
+
             const triggerFallbackOrReject = async (reason, isBotBan = false) => {
                 if (isHandled || hasOutput) return;
                 isHandled = true;
@@ -297,7 +307,7 @@ class CacheManager {
                 if (!isFallback) {
                     console.log(`[CacheManager] Auto-switching to SoundCloud stream for: ${track.title}${isBotBan ? ' (Anti-Bot detected)' : ''}`);
                     try {
-                        const fallbackStream = await this._trySoundCloudFallback(track, seekSeconds, volume);
+                        const fallbackStream = await this._trySoundCloudFallback(track, seekSeconds, volume, onSpawn);
                         return resolve(fallbackStream);
                     } catch (fbErr) {
                         return reject(new Error(`Stream failed: ${reason || fbErr.message}`));
@@ -369,18 +379,18 @@ class CacheManager {
         });
     }
 
-    async _trySoundCloudFallback(track, seekSeconds = 0, volume = 100) {
+    async _trySoundCloudFallback(track, seekSeconds = 0, volume = 100, onSpawn = null) {
         const fallbackQuery = this._getSoundCloudFallback(track);
         if (!fallbackQuery) {
             throw new Error('No valid fallback search query could be generated.');
         }
-        return this._spawnPipedStream(track, fallbackQuery, seekSeconds, volume, true);
+        return this._spawnPipedStream(track, fallbackQuery, seekSeconds, volume, true, onSpawn);
     }
 
     /**
      * Download and cache track on-disk.
      */
-    async prepareTrack(track, isBackground = false) {
+    async prepareTrack(track, isBackground = false, onSpawn = null) {
         const identifier = track.identifier || Buffer.from(track.uri || '').toString('hex').slice(0, 20);
         const targetPath = this.getTrackPath(identifier);
 
@@ -412,10 +422,17 @@ class CacheManager {
                 if (fallback) {
                     const fbArgs = this._buildYtDlpArgs(fallback, false, outTemplate);
                     await new Promise((resolve, reject) => {
-                        execFile(this.binPath, fbArgs, { maxBuffer: 8 * 1024 * 1024, timeout: 35000 }, (fbErr) => {
+                        const fbChild = execFile(this.binPath, fbArgs, { maxBuffer: 8 * 1024 * 1024, timeout: 35000 }, (fbErr) => {
                             if (fbErr) return reject(fbErr);
                             resolve();
                         });
+                        if (typeof onSpawn === 'function') {
+                            onSpawn({
+                                kill: () => {
+                                    try { fbChild.kill('SIGKILL'); } catch {}
+                                }
+                            });
+                        }
                     });
                     track.realSource = 'SoundCloud (Bypass Fallback)';
                     if (fs.existsSync(targetPath)) return targetPath;
@@ -429,13 +446,20 @@ class CacheManager {
 
             try {
                 await new Promise((resolve, reject) => {
-                    execFile(this.binPath, args, { maxBuffer: 8 * 1024 * 1024, timeout: downloadTimeout }, (err, stdout, stderr) => {
+                    const child = execFile(this.binPath, args, { maxBuffer: 8 * 1024 * 1024, timeout: downloadTimeout }, (err, stdout, stderr) => {
                         if (err) {
                             const errMsg = (stderr || '') + (err.message || '');
                             return reject(new Error(errMsg));
                         }
                         resolve();
                     });
+                    if (typeof onSpawn === 'function') {
+                        onSpawn({
+                            kill: () => {
+                                try { child.kill('SIGKILL'); } catch {}
+                            }
+                        });
+                    }
                 });
                 if (activeProxy) {
                     proxyManager.reportSuccess(activeProxy, Date.now() - startTime);
@@ -453,10 +477,17 @@ class CacheManager {
                 if (fallback && !track.uri.includes('soundcloud.com')) {
                     const fbArgs = this._buildYtDlpArgs(fallback, false, outTemplate);
                     await new Promise((resolve, reject) => {
-                        execFile(this.binPath, fbArgs, { maxBuffer: 8 * 1024 * 1024, timeout: 35000 }, (fbErr) => {
+                        const fbChild = execFile(this.binPath, fbArgs, { maxBuffer: 8 * 1024 * 1024, timeout: 35000 }, (fbErr) => {
                             if (fbErr) return reject(fbErr);
                             resolve();
                         });
+                        if (typeof onSpawn === 'function') {
+                            onSpawn({
+                                kill: () => {
+                                    try { fbChild.kill('SIGKILL'); } catch {}
+                                }
+                            });
+                        }
                     });
                     track.realSource = 'SoundCloud (Bypass Fallback)';
                     console.log(`[CacheManager] Track cached via SoundCloud: "${track.title}"`);

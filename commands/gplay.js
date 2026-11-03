@@ -65,11 +65,11 @@ module.exports = {
             } else {
                 player.queue.add(track);
             }
-            embed.setDescription(`**${track.title}**\n\n${player.playing ? (top ? `⬆️ วีไอพีสุดๆ! แซงคิวเป็นเพลงต่อไปให้แล้วค่ะ 💅` : `✅ รับแซ่บค่ะ! ดีเจสาวจับยัดลงคิวให้แล้วนะคะ เตรียมตัวโยกได้เลย 📝💋`) : `▶️ ดีเจจัดให้! เริ่มเล่นเพลงแล้วค่ะ 🎧✨`}`);
+            embed.setDescription(`**${track.title}**\n\n${(player.playing || player._starting) ? (top ? `⬆️ วีไอพีสุดๆ! แซงคิวเป็นเพลงต่อไปให้แล้วค่ะ 💅` : `✅ รับแซ่บค่ะ! ดีเจสาวจับยัดลงคิวให้แล้วนะคะ เตรียมตัวโยกได้เลย 📝💋`) : `▶️ ดีเจจัดให้! เริ่มเล่นเพลงแล้วค่ะ 🎧✨`}`);
             await interaction.followUp({ embeds: [embed] });
         }
 
-        if (!player.playing && !player.paused) {
+        if (!player.playing && !player._starting && !player.paused) {
             try {
                 await player.play();
             } catch (error) {

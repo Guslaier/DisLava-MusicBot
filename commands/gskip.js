@@ -9,7 +9,7 @@ module.exports = {
         const player = kazagumo.players.get(interaction.guild.id);
         const embed = new EmbedBuilder().setColor('#FF69B4');
 
-        if (!player || !player.playing) {
+        if (!player || (!player.playing && !player._starting)) {
             embed.setDescription('❌ อ๊ะ! ไม่มีเพลงที่กำลังเล่นอยู่ค่ะ จะให้ดีเจข้ามความว่างเปล่าเหรอคะ? 😅');
             return interaction.reply({ embeds: [embed], flags: 64 });
         }
