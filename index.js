@@ -170,56 +170,38 @@ client.on('interactionCreate', async interaction => {
         switch (customId) {
             case 'music_shuffle': {
                 player.queue.shuffle();
-                return interaction.reply({
-                    content: '🔀 สลับลำดับคิวเพลงเรียบร้อยแล้วค่ะ!',
-                    flags: MessageFlags.Ephemeral
-                });
+                return interaction.deferUpdate();
             }
             case 'music_previous': {
                 if (!player.queue.previous) {
-                    return interaction.reply({
-                        content: '❌ ไม่มีเพลงก่อนหน้านี้ในประวัติเลยค่ะ',
-                        flags: MessageFlags.Ephemeral
-                    });
+                    return interaction.deferUpdate();
                 }
-                await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+                await interaction.deferUpdate();
                 await player.playPrevious();
-                return interaction.followUp({
-                    content: `⏪ ย้อนกลับไปเล่นเพลง **${player.queue.current?.title}** ให้แล้วค่ะ!`
-                });
+                return;
             }
             case 'music_pause_resume': {
-                const isPaused = player.pause(!player.paused);
+                player.pause(!player.paused);
                 try {
                     const cardData = createNowPlayingCard(player, player.queue.current);
-                    await interaction.message.edit(cardData).catch(() => {});
-                } catch {}
-                return interaction.reply({
-                    content: isPaused ? '⏸️ พักการเล่นเพลงชั่วคราวแล้วค่ะ' : '▶️ เล่นเพลงต่อเรียบร้อยค่ะ!',
-                    flags: MessageFlags.Ephemeral
-                });
+                    return await interaction.update(cardData);
+                } catch {
+                    return interaction.deferUpdate();
+                }
             }
             case 'music_skip': {
-                await interaction.reply({
-                    content: '⏭️ ข้ามเพลงไปเพลงถัดไปให้แล้วค่ะ!',
-                    flags: MessageFlags.Ephemeral
-                });
+                await interaction.deferUpdate();
                 player.skip();
                 return;
             }
             case 'music_loop': {
-                const newLoop = player.cycleLoop();
-                let loopText = 'ปิดการวนลูป (Loop: Off)';
-                if (newLoop === 'track') loopText = 'วนเพลงปัจจุบัน (Loop: Track)';
-                else if (newLoop === 'queue') loopText = 'วนทั้งคิว (Loop: Queue)';
+                player.cycleLoop();
                 try {
                     const cardData = createNowPlayingCard(player, player.queue.current);
-                    await interaction.message.edit(cardData).catch(() => {});
-                } catch {}
-                return interaction.reply({
-                    content: `🔁 เปลี่ยนโหมดเป็น: **${loopText}** เรียบร้อยค่ะ`,
-                    flags: MessageFlags.Ephemeral
-                });
+                    return await interaction.update(cardData);
+                } catch {
+                    return interaction.deferUpdate();
+                }
             }
             case 'music_queue': {
                 const queue = player.queue;
@@ -295,6 +277,12 @@ client.on('interactionCreate', async interaction => {
             case 'vol_130': {
                 const volNum = parseInt(customId.replace('vol_', ''), 10);
                 player.setVolume(volNum);
+                if (player.nowPlayingMessage) {
+                    try {
+                        const cardData = createNowPlayingCard(player, player.queue.current);
+                        await player.nowPlayingMessage.edit(cardData).catch(() => {});
+                    } catch {}
+                }
                 return interaction.update({
                     content: `🔊 ปรับระดับเสียงเป็น **${volNum}%** เรียบร้อยค่ะ!`,
                     components: []
