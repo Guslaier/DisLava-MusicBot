@@ -18,7 +18,18 @@ class SmartProxyPool {
         this.lastScanTime = 0;
         this._healthInterval = null;
         this._scrapeInterval = null;
-        this.enabled = process.env.ENABLE_SMART_PROXY !== 'false';
+        
+        // Configurable via ENABLE_FREE_PROXY or ENABLE_SMART_PROXY
+        const freeProxyEnv = process.env.ENABLE_FREE_PROXY;
+        const smartProxyEnv = process.env.ENABLE_SMART_PROXY;
+        if (freeProxyEnv !== undefined) {
+            this.enabled = freeProxyEnv.toLowerCase() === 'true';
+        } else if (smartProxyEnv !== undefined) {
+            this.enabled = smartProxyEnv.toLowerCase() !== 'false';
+        } else {
+            // Default: if VPN is active, disable free proxy pool to avoid background CPU/bandwidth waste
+            this.enabled = process.env.ENABLE_VPN === 'true' ? false : true;
+        }
     }
 
     async init() {

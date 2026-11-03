@@ -1,9 +1,11 @@
 const fs = require('fs');
 const os = require('os');
+const { execSync } = require('child_process');
 const smartProxyPool = require('./smartProxyPool');
 
 class ProxyManager {
     constructor() {
+        this.vpnEnabled = process.env.ENABLE_VPN !== 'false';
         this.configuredProxyUrl = process.env.PROXY_URL ? process.env.PROXY_URL.trim() : null;
         this.isOnline = false;
         this.lastCheckTime = 0;
@@ -11,9 +13,46 @@ class ProxyManager {
     }
 
     /**
+     * Synchronizes system VPN service based on ENABLE_VPN in .env.
+     */
+    _syncVpnService() {
+        if (process.platform !== 'linux') return;
+
+        // Auto-update auth.txt if credentials provided in .env
+        const vpnUser = process.env.VPN_USERNAME;
+        const vpnPass = process.env.VPN_PASSWORD;
+        if (vpnUser && vpnPass) {
+            try {
+                if (!fs.existsSync('/root/vpn')) fs.mkdirSync('/root/vpn', { mode: 0o700, recursive: true });
+                fs.writeFileSync('/root/vpn/auth.txt', `${vpnUser.trim()}\n${vpnPass.trim()}\n`, { mode: 0o600 });
+            } catch (err) {
+                console.warn('[ProxyManager] [VPN] Failed to update auth.txt:', err.message);
+            }
+        }
+
+        const serviceFile = '/etc/systemd/system/protonvpn-isolated.service';
+        if (!fs.existsSync(serviceFile)) return;
+
+        try {
+            const isActive = execSync('systemctl is-active --quiet protonvpn-isolated && echo "1" || echo "0"', { encoding: 'utf8' }).trim() === '1';
+            if (this.vpnEnabled && !isActive) {
+                console.log('[ProxyManager] [VPN] Starting protonvpn-isolated service...');
+                execSync('systemctl start protonvpn-isolated');
+            } else if (!this.vpnEnabled && isActive) {
+                console.log('[ProxyManager] [VPN] Stopping protonvpn-isolated service (disabled via ENABLE_VPN=false)...');
+                execSync('systemctl stop protonvpn-isolated 2>/dev/null || true');
+            }
+        } catch (err) {
+            console.warn('[ProxyManager] [VPN] Service control warning:', err.message);
+        }
+    }
+
+    /**
      * Resolves active VPN client IPv4 address if tun interface is up.
      */
     getVpnSourceIp() {
+        if (!this.vpnEnabled) return null;
+
         if (process.env.VPN_SOURCE_IP) {
             return process.env.VPN_SOURCE_IP.trim();
         }
@@ -36,7 +75,7 @@ class ProxyManager {
     }
 
     isVpnActive() {
-        return !!this.getVpnSourceIp();
+        return this.vpnEnabled && !!this.getVpnSourceIp();
     }
 
     /**
@@ -70,9 +109,13 @@ class ProxyManager {
     }
 
     async init() {
+        this._syncVpnService();
+
         const vpnIp = this.getVpnSourceIp();
         if (vpnIp) {
             console.log(`[ProxyManager] [VPN] VPN Egress Active (Interface IP: ${vpnIp})`);
+        } else if (!this.vpnEnabled) {
+            console.log('[ProxyManager] [VPN] VPN Egress Disabled via ENABLE_VPN=false');
         }
 
         // Initialize Smart Proxy Pool
@@ -80,8 +123,10 @@ class ProxyManager {
 
         if (this.configuredProxyUrl) {
             console.log(`[ProxyManager] Static VIP proxy configured: ${this.configuredProxyUrl}`);
-        } else if (!vpnIp) {
+        } else if (!vpnIp && smartProxyPool.enabled) {
             console.log('[ProxyManager] Running in Dynamic Smart Proxy Pool mode.');
+        } else if (!vpnIp && !smartProxyPool.enabled) {
+            console.log('[ProxyManager] Running in Direct / Bypass mode (No VPN / Free Proxy Pool disabled).');
         }
     }
 
@@ -159,6 +204,8 @@ class ProxyManager {
         return {
             isVpn: !!vpnIp,
             vpnIp: vpnIp,
+            vpnEnabled: this.vpnEnabled,
+            freeProxyEnabled: smartProxyPool.enabled,
             configured: !!vpnIp || poolStatus.activeCount > 0,
             isOnline: !!vpnIp || poolStatus.activeCount > 0,
             url: vpnIp ? `VPN: ${vpnIp}` : (best || 'None'),
