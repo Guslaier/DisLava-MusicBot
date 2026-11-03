@@ -11,7 +11,7 @@ module.exports = {
 
         if (!player) {
             embed.setDescription('❌ ยังไม่มีคิวเพลงที่กำลังเล่นอยู่ค่ะ! เปิดเพลงก่อนแล้วค่อยเปิด Autoplay น้า~ 🥺');
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
 
         player.autoplay = !player.autoplay;

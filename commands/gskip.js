@@ -11,7 +11,7 @@ module.exports = {
 
         if (!player || !player.playing) {
             embed.setDescription('❌ อ๊ะ! ไม่มีเพลงที่กำลังเล่นอยู่ค่ะ จะให้ดีเจข้ามความว่างเปล่าเหรอคะ? 😅');
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
 
         player.skip();

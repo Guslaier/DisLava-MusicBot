@@ -25,7 +25,7 @@ module.exports = {
 
         if (!voiceChannel) {
             embed.setDescription('❌ อ๊ะๆ! ตัวเธอต้องเข้าห้องเสียงก่อนนะคะ เดี๋ยวดีเจเหงาแย่เลย~ 🥺');
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
 
         const query = interaction.options.getString('query');
@@ -74,7 +74,7 @@ module.exports = {
                 await player.play();
             } catch (error) {
                 console.error('[gplay] Play error:', error.message);
-                return interaction.followUp({ content: '❌ เกิดข้อผิดพลาดในการเริ่มเล่นเพลงค่ะ', ephemeral: true });
+                return interaction.followUp({ content: '❌ เกิดข้อผิดพลาดในการเริ่มเล่นเพลงค่ะ', flags: 64 });
             }
         }
     }

@@ -23,7 +23,7 @@ module.exports = {
 
         if (!player || player.queue.length === 0) {
             embed.setDescription('❌ ไม่มีเพลงในคิวให้ย้ายเลยค่ะ ตอนนี้คิวว่างเปล่า 🥺');
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
 
         const fromPos = interaction.options.getInteger('from');
@@ -31,12 +31,12 @@ module.exports = {
 
         if (fromPos > player.queue.length || toPos > player.queue.length) {
             embed.setDescription(`❌ ลำดับไม่ถูกต้องค่ะ! ตอนนี้ในคิวมีเพลงรออยู่ **${player.queue.length}** เพลง`);
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
 
         if (fromPos === toPos) {
             embed.setDescription('❌ ตำแหน่งเดิมกับตำแหน่งใหม่เป็นที่เดียวกันค่ะ ไม่ต้องย้ายน้า~ 😅');
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
 
         const track = player.queue[fromPos - 1];

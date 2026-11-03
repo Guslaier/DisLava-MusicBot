@@ -11,7 +11,7 @@ module.exports = {
 
         if (!player) {
             embed.setDescription('❌ อ๊ะ! ตอนนี้ไม่มีคิวเพลงให้ล้างเลยค่ะ สั่งดีเจเปิดเพลงได้เลยน้า~ 🎶');
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
 
         player.queue.clear();

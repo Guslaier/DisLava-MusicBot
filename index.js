@@ -155,7 +155,7 @@ client.on('interactionCreate', async interaction => {
         if (!player || !player.playing || !player.queue.current) {
             return interaction.reply({
                 content: '❌ ไม่มีเพลงที่กำลังเล่นอยู่ตอนนี้ค่ะ',
-                ephemeral: true
+                flags: MessageFlags.Ephemeral
             });
         }
 

@@ -11,11 +11,11 @@ module.exports = {
 
         if (!player) {
             embed.setDescription('❌ ไม่มีคิวเพลงค่ะ! จะให้สุ่มอะไรดีน้าาา 🥺');
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
         if (player.queue.length <= 1) {
             embed.setDescription('⚠️ แหม! ต้องมีเพลงในคิวมากกว่า 1 เพลงถึงจะให้สุ่มได้นะคะที่รัก 🤭');
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
 
         player.queue.shuffle();

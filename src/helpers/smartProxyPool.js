@@ -3,6 +3,7 @@ const path = require('path');
 const { exec } = require('child_process');
 const { promisify } = require('util');
 const https = require('https');
+const http = require('http');
 const execAsync = promisify(exec);
 
 class SmartProxyPool {
@@ -47,15 +48,15 @@ class SmartProxyPool {
         // Initial background scan/validation
         setTimeout(() => {
             this.refreshPool(false).catch(() => {});
-        }, 3000);
+        }, 2000);
 
-        // Health check top candidates every 45s
+        // Relaxed health check every 3 minutes (prevents flapping)
         this._healthInterval = setInterval(() => {
             this.checkTopProxies().catch(() => {});
-        }, 45 * 1000);
+        }, 3 * 60 * 1000);
         this._healthInterval.unref();
 
-        // Auto-scrape new Thai proxies every 15 minutes
+        // Auto-scrape fresh regional proxies every 15 minutes
         this._scrapeInterval = setInterval(() => {
             this.refreshPool(false).catch(() => {});
         }, 15 * 60 * 1000);
@@ -93,24 +94,43 @@ class SmartProxyPool {
     /**
      * Returns the highest-ranked proxy URL currently alive.
      * Ranked by Score DESC, Latency ASC.
+     * If no prime candidate is found, falls back to best-effort proxy and triggers auto-refresh.
      */
     getBestProxy() {
         if (!this.enabled || this.proxies.size === 0) return null;
 
+        // Normal candidates: score >= 15, consecutive fails < 3
         const candidates = Array.from(this.proxies.values()).filter(p => {
-            return p.score >= 30 && p.consecutiveFails < 2;
+            return p.score >= 15 && p.consecutiveFails < 3;
         });
 
-        if (candidates.length === 0) return null;
+        if (candidates.length > 0) {
+            candidates.sort((a, b) => {
+                if (b.score !== a.score) {
+                    return b.score - a.score;
+                }
+                return (a.latency || 9999) - (b.latency || 9999);
+            });
+            return candidates[0].url;
+        }
 
-        candidates.sort((a, b) => {
-            if (b.score !== a.score) {
-                return b.score - a.score;
+        // Emergency fallback: Trigger auto-refresh immediately
+        if (!this.isScanning) {
+            this.refreshPool(true).catch(() => {});
+        }
+
+        // Best effort: Return candidate with lowest consecutiveFails and highest score
+        const allList = Array.from(this.proxies.values());
+        if (allList.length === 0) return null;
+
+        allList.sort((a, b) => {
+            if (a.consecutiveFails !== b.consecutiveFails) {
+                return a.consecutiveFails - b.consecutiveFails;
             }
-            return (a.latency || 9999) - (b.latency || 9999);
+            return (b.score || 0) - (a.score || 0);
         });
 
-        return candidates[0].url;
+        return allList[0].consecutiveFails < 5 ? allList[0].url : null;
     }
 
     /**
@@ -120,7 +140,7 @@ class SmartProxyPool {
         if (!proxyUrl) return;
         const p = this.proxies.get(proxyUrl);
         if (p) {
-            p.score = Math.min(100, (p.score || 50) + 10);
+            p.score = Math.min(100, (p.score || 50) + 15);
             p.consecutiveFails = 0;
             p.successCount = (p.successCount || 0) + 1;
             p.lastSuccess = Date.now();
@@ -133,7 +153,7 @@ class SmartProxyPool {
     }
 
     /**
-     * Report failed request through a proxy (e.g. timeout, 403, network drop).
+     * Report failed request through a proxy.
      */
     reportFailure(proxyUrl, reason = '') {
         if (!proxyUrl) return;
@@ -141,11 +161,11 @@ class SmartProxyPool {
         if (p) {
             p.consecutiveFails = (p.consecutiveFails || 0) + 1;
             p.failCount = (p.failCount || 0) + 1;
-            p.score = Math.max(0, (p.score || 50) - 25);
+            p.score = Math.max(0, (p.score || 50) - 10);
             p.lastChecked = Date.now();
             p.lastError = reason;
 
-            if (p.consecutiveFails >= 2) {
+            if (p.consecutiveFails >= 3) {
                 console.warn(`[SmartProxyPool] Proxy demoted (${p.url}) [Score: ${p.score}, Fails: ${p.consecutiveFails}] - ${reason}`);
             }
             this._savePool();
@@ -153,22 +173,27 @@ class SmartProxyPool {
     }
 
     /**
-     * Probes a proxy with a fast 3-second connect timeout against Google/YouTube.
+     * Probes a proxy using Google's lightweight 204 endpoint with a 6-second timeout.
      */
     async probeProxy(proxyUrl) {
         const start = Date.now();
         try {
-            // Probe against Google to verify egress
-            await execAsync(`curl -x "${proxyUrl}" -I -s --connect-timeout 3 -m 4 https://www.google.com`);
+            const { stdout } = await execAsync(
+                `curl -s -o /dev/null -w "%{http_code}" --connect-timeout 6 -m 8 -x "${proxyUrl}" http://www.google.com/generate_204`
+            );
+            const code = parseInt(stdout.trim(), 10);
             const latency = Date.now() - start;
-            return { ok: true, latency };
+            if (code === 204 || code === 200 || code === 301 || code === 302) {
+                return { ok: true, latency };
+            }
+            return { ok: false, error: `HTTP ${code}` };
         } catch (err) {
             return { ok: false, error: err.message };
         }
     }
 
     /**
-     * Checks the top 3 proxies in background to maintain fresh health scores.
+     * Checks proxies periodically, skipping those that were successfully used recently.
      */
     async checkTopProxies() {
         if (this.proxies.size === 0) return;
@@ -178,6 +203,11 @@ class SmartProxyPool {
             .slice(0, 3);
 
         for (const p of list) {
+            // Do not disturb proxy if it was used successfully in the last 2 minutes
+            if (Date.now() - (p.lastSuccess || 0) < 120000) {
+                continue;
+            }
+
             const res = await this.probeProxy(p.url);
             if (res.ok) {
                 this.reportSuccess(p.url, res.latency);
@@ -188,7 +218,7 @@ class SmartProxyPool {
     }
 
     /**
-     * Scrapes public APIs for fresh Thailand proxies and benchmarks them.
+     * Scrapes public APIs for fresh regional proxies (TH, SG, MY, JP, HK) and benchmarks them.
      */
     async refreshPool(force = false) {
         if (this.isScanning) return;
@@ -196,15 +226,15 @@ class SmartProxyPool {
 
         this.isScanning = true;
         this.lastScanTime = Date.now();
-        console.log('[SmartProxyPool] Auto-discovering fresh Thailand proxies...');
+        console.log('[SmartProxyPool] Auto-discovering fresh regional proxies (TH, SG, MY, JP, HK)...');
 
         const candidates = new Set();
 
         try {
-            // Source 1: Proxyscrape API (HTTP/SOCKS)
-            const rawList = await this._httpGet('https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http,socks4,socks5&country=TH&timeout=4000');
-            if (rawList) {
-                rawList.split(/\r?\n/).forEach(line => {
+            // Source 1: Proxyscrape HTTP (Regional Asian nodes)
+            const rawListHttp = await this._httpGet('https://api.proxyscrape.com/v2/?request=displayproxies&protocol=http&timeout=3500&country=TH,SG,MY,JP,HK');
+            if (rawListHttp) {
+                rawListHttp.split(/\r?\n/).forEach(line => {
                     const clean = line.trim();
                     if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{2,5}$/.test(clean)) {
                         candidates.add(`http://${clean}`);
@@ -214,8 +244,8 @@ class SmartProxyPool {
         } catch {}
 
         try {
-            // Source 2: Geonode API
-            const jsonText = await this._httpGet('https://proxylist.geonode.com/api/proxy-list?country=TH&limit=25&page=1&sort_by=lastChecked&sort_type=desc');
+            // Source 2: Geonode API (TH, SG)
+            const jsonText = await this._httpGet('https://proxylist.geonode.com/api/proxy-list?country=TH,SG&limit=30&page=1&sort_by=lastChecked&sort_type=desc');
             if (jsonText) {
                 const parsed = JSON.parse(jsonText);
                 if (parsed && Array.isArray(parsed.data)) {
@@ -228,10 +258,23 @@ class SmartProxyPool {
             }
         } catch {}
 
+        try {
+            // Source 3: Proxyscrape SOCKS5 (Regional Asian nodes)
+            const rawListSocks = await this._httpGet('https://api.proxyscrape.com/v2/?request=displayproxies&protocol=socks5&timeout=3500&country=TH,SG,MY,JP,HK');
+            if (rawListSocks) {
+                rawListSocks.split(/\r?\n/).forEach(line => {
+                    const clean = line.trim();
+                    if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d{2,5}$/.test(clean)) {
+                        candidates.add(`socks5://${clean}`);
+                    }
+                });
+            }
+        } catch {}
+
         console.log(`[SmartProxyPool] Found ${candidates.size} potential candidate proxies. Benchmarking...`);
 
         // Test in parallel batches of 5 to preserve CPU/RAM
-        const candidateList = Array.from(candidates).slice(0, 20);
+        const candidateList = Array.from(candidates).slice(0, 25);
         let aliveCount = 0;
 
         for (let i = 0; i < candidateList.length; i += 5) {
@@ -245,6 +288,8 @@ class SmartProxyPool {
                         existing.score = Math.max(existing.score, 75);
                         existing.latency = res.latency;
                         existing.consecutiveFails = 0;
+                        existing.lastSuccess = Date.now();
+                        existing.lastChecked = Date.now();
                     } else {
                         this.proxies.set(proxyUrl, {
                             url: proxyUrl,
@@ -261,9 +306,9 @@ class SmartProxyPool {
             }));
         }
 
-        // Clean dead entries (score <= 0)
+        // Clean obsolete dead entries
         for (const [url, p] of this.proxies.entries()) {
-            if (p.score <= 0 && p.consecutiveFails >= 4 && !p.isVip) {
+            if (p.score <= 0 && p.consecutiveFails >= 6 && !p.isVip) {
                 this.proxies.delete(url);
             }
         }
@@ -277,7 +322,8 @@ class SmartProxyPool {
 
     _httpGet(urlStr) {
         return new Promise((resolve) => {
-            const req = https.get(urlStr, { timeout: 6000 }, (res) => {
+            const client = urlStr.startsWith('https') ? https : http;
+            const req = client.get(urlStr, { timeout: 6000 }, (res) => {
                 let body = '';
                 res.on('data', chunk => body += chunk);
                 res.on('end', () => resolve(body));
@@ -289,7 +335,7 @@ class SmartProxyPool {
 
     getStatus() {
         const total = this.proxies.size;
-        const active = Array.from(this.proxies.values()).filter(p => p.score >= 30 && p.consecutiveFails < 2);
+        const active = Array.from(this.proxies.values()).filter(p => p.score >= 15 && p.consecutiveFails < 3);
         const best = this.getBestProxy();
         const bestObj = best ? this.proxies.get(best) : null;
 

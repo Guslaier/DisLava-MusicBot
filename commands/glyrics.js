@@ -12,7 +12,7 @@ module.exports = {
 
         if (!player || !player.playing) {
             embed.setDescription('❌ ไม่มีเพลงที่กำลังเล่นอยู่ค่ะ! ร้องเพลงอะไรกันเอ่ย? 🥺');
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
 
         const track = player.queue.current;

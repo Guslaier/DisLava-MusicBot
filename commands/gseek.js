@@ -20,7 +20,7 @@ module.exports = {
 
         if (!player || !player.playing) {
             embed.setDescription('❌ ไม่มีเพลงที่กำลังเล่นอยู่ค่ะ! จะให้ดีเจกรอความเหงาเหรอคะ? 🥺');
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
 
         let timeMs = 0;
@@ -39,12 +39,12 @@ module.exports = {
 
         if (isNaN(timeMs) || timeMs < 0) {
             embed.setDescription('❌ อ๊ะ! รูปแบบเวลาไม่ถูกต้องค่ะ ลองพิมพ์แบบ 01:30 หรือใส่เป็นวินาทีดูนะคะ 🧐');
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
 
         if (player.queue.current.length > 0 && timeMs > player.queue.current.length) {
             embed.setDescription('❌ เวลาเกินความยาวเพลงค่ะ! กรอซะทะลุเพลงเลยนะตัวเธอ 😅');
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
 
         await interaction.deferReply();

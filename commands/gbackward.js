@@ -18,13 +18,13 @@ module.exports = {
 
         if (!player || !player.playing || !player.queue.current) {
             embed.setDescription('❌ ไม่มีเพลงที่กำลังเล่นอยู่ค่ะ! จะให้ดีเจกรอย้อนอะไรเอ่ย 😅');
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
 
         const track = player.queue.current;
         if (track.isStream) {
             embed.setDescription('❌ ไม่สามารถกรอเพลงที่เป็น Live Stream สดได้ค่ะ 🥺');
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
 
         const seconds = interaction.options.getInteger('seconds');

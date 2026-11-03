@@ -20,7 +20,7 @@ module.exports = {
 
         if (!player) {
             embed.setDescription('❌ ไม่มีคิวเพลงค่ะ! จะให้ดีเจปรับเสียงอะไรเอ่ย 😅');
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
 
         let volume = interaction.options.getInteger('amount');

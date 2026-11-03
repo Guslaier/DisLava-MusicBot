@@ -11,11 +11,11 @@ module.exports = {
 
         if (!player || !player.playing) {
             embed.setDescription('❌ ไม่มีเพลงที่กำลังเล่นอยู่ค่ะ จะให้ดีเจหยุดอะไรเอ่ย? 😅');
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
         if (player.paused) {
             embed.setDescription('⚠️ แหมมม เพลงก็หยุดอยู่แล้วนะคะที่รัก จะหยุดซ้ำทำไมเนี่ย! 😂');
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
 
         player.pause(true);

@@ -20,21 +20,21 @@ module.exports = {
 
         if (!player || !player.playing) {
             embed.setDescription('❌ ไม่มีเพลงที่กำลังเล่นอยู่เลยค่ะ จะให้แซงคิวใครเอ่ย? 😅');
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
         if (player.queue.length === 0) {
             embed.setDescription('❌ คิวเพลงว่างเปล่าค่ะ ไม่มีใครให้แซงน้า~!');
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
         if (position < 1 || position > player.queue.length) {
             embed.setDescription(`❌ เอ๊ะ! ระบุลำดับคิวผิดรึเปล่าคะ ต้องอยู่ระหว่าง 1 ถึง ${player.queue.length} นะคะ 🧐`);
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
 
         const trackToJump = player.queue.remove(position - 1);
         if (!trackToJump) {
             embed.setDescription('❌ ไม่สามารถดึงเพลงออกจากคิวได้ค่ะ');
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
 
         player.queue.unshift(trackToJump);

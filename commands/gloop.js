@@ -24,7 +24,7 @@ module.exports = {
 
         if (!player) {
             embed.setDescription('❌ ไม่มีคิวเพลงค่ะ! จะให้ดีเจวนลูปความเหงาเหรอคะ? 🥺');
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
 
         const mode = interaction.options.getString('mode');

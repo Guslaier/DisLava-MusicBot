@@ -11,7 +11,7 @@ module.exports = {
 
         if (!player) {
             embed.setDescription('❌ อ๊ะ! ไม่มีเพลงที่กำลังเล่นอยู่เลยค่ะ สเตจว่างเปล่ามากตอนนี้ 😅');
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
 
         player.destroy();

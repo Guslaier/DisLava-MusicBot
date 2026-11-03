@@ -11,7 +11,7 @@ module.exports = {
 
         if (!player || (!player.playing && player.queue.length === 0)) {
             embed.setDescription('❌ ไม่มีเพลงที่กำลังเล่นหรือรอคิวอยู่ค่ะ สเตจเงียบเหงามากตอนนี้ 🥺');
-            return interaction.reply({ embeds: [embed], ephemeral: true });
+            return interaction.reply({ embeds: [embed], flags: 64 });
         }
 
         const queue = player.queue;
@@ -89,7 +89,7 @@ module.exports = {
 
         collector.on('collect', async (i) => {
             if (i.user.id !== interaction.user.id) {
-                return i.reply({ content: '❌ คุณไม่ใช่คนเรียกดูคิวนะคะ ห้ามแย่งกด!', ephemeral: true });
+                return i.reply({ content: '❌ คุณไม่ใช่คนเรียกดูคิวนะคะ ห้ามแย่งกด!', flags: 64 });
             }
 
             if (i.customId === 'queue_prev') {
