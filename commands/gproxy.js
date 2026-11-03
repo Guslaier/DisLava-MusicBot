@@ -1,5 +1,6 @@
 const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
 const proxyManager = require('../src/helpers/proxyManager');
+const youtubeCircuit = require('../src/helpers/youtubeCircuit');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -28,9 +29,11 @@ module.exports = {
 
         if (subcommand === 'status') {
             const status = proxyManager.getStatus();
+            const circuit = youtubeCircuit.getStatus();
             embed.setTitle('🛡️ สถานะระบบ Smart Proxy Pool');
             embed.addFields(
                 { name: 'สถานะ', value: status.isOnline ? '🟢 ใช้งานได้ (Online)' : '🔴 สแตนด์บาย (Direct/Bypass)', inline: true },
+                { name: 'YouTube Circuit', value: `\`${circuit.status}\``, inline: true },
                 { name: 'Proxy ที่ดีที่สุด', value: `\`${status.url}\``, inline: true },
                 { name: 'Latency', value: `\`${status.bestLatency}\``, inline: true },
                 { name: 'คะแนน (Score)', value: `\`${status.bestScore}/100\``, inline: true },
@@ -90,3 +93,4 @@ module.exports = {
         }
     }
 };
+

@@ -419,6 +419,10 @@ async function runStartupCheck() {
         allGood = false;
     }
 
+    // 7. Initialize YouTube Circuit Breaker (Probe in background)
+    const youtubeCircuit = require('./src/helpers/youtubeCircuit');
+    youtubeCircuit.startProbe(ytDlpPath, () => proxyManager.getYouTubeProxy());
+
     console.log('--------------------------------------\n');
     return allGood;
 }

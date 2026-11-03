@@ -32,6 +32,16 @@ class ProxyManager {
     }
 
     /**
+     * Returns a proxy only if verified against YouTube or configured statically.
+     */
+    getYouTubeProxy() {
+        if (this.configuredProxyUrl && !smartProxyPool.isBlacklisted(this.configuredProxyUrl)) {
+            return this.configuredProxyUrl;
+        }
+        return smartProxyPool.getYouTubeVerifiedProxy();
+    }
+
+    /**
      * Reports successful completion of a request through the proxy.
      */
     reportSuccess(proxyUrl, latencyMs = 0) {

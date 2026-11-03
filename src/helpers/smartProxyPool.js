@@ -187,6 +187,20 @@ class SmartProxyPool {
     }
 
     /**
+     * Returns a proxy URL only if it has been verified to bypass YouTube without bot blocks.
+     * Returns null if no verified proxies exist.
+     */
+    getYouTubeVerifiedProxy() {
+        if (!this.enabled || this.proxies.size === 0) return null;
+        const verified = Array.from(this.proxies.values()).filter(p => {
+            return !this.isBlacklisted(p.url) && p.youtubeVerified && (p.consecutiveFails || 0) < 2;
+        });
+        if (verified.length === 0) return null;
+        verified.sort((a, b) => (a.latency || 9999) - (b.latency || 9999));
+        return verified[0].url;
+    }
+
+    /**
      * Returns the highest-ranked proxy URL currently alive and not blacklisted.
      */
     getBestProxy() {

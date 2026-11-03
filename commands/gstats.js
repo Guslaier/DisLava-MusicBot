@@ -23,7 +23,9 @@ module.exports = {
         const totalGuilds = client.guilds.cache.size;
 
         const proxyManager = require('../src/helpers/proxyManager');
+        const youtubeCircuit = require('../src/helpers/youtubeCircuit');
         const proxyStatus = proxyManager.getStatus();
+        const circuitStatus = youtubeCircuit.getStatus();
         const proxyBadge = proxyStatus.configured
             ? (proxyStatus.isOnline ? `🟢 Smart Pool (${proxyStatus.activeCount} Live | 🚫 ${proxyStatus.blacklistCount || 0} Blocked | ${proxyStatus.bestLatency})` : '🔴 Pool Exhausted (Retrying)')
             : '⚪ Direct (Bypass Mode)';
@@ -35,6 +37,7 @@ module.exports = {
                 { name: '⏱️ Uptime', value: `\`${uptimeStr}\``, inline: true },
                 { name: '🧠 RAM (RSS / Heap)', value: `\`${rssMB} MB / ${heapUsedMB} MB\``, inline: true },
                 { name: '🛡️ Proxy Egress', value: `\`${proxyBadge}\``, inline: true },
+                { name: '⚡ Circuit Breaker', value: `\`${circuitStatus.status}\``, inline: true },
                 { name: '🎧 Active Players', value: `\`${activePlayers} ห้อง\``, inline: true },
                 { name: '🏰 Servers', value: `\`${totalGuilds} เซิร์ฟเวอร์\``, inline: true },
                 { name: '⚙️ Node.js / D.js', value: `\`${process.version} / v${djsVersion}\``, inline: true },

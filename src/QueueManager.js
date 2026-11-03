@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const Player = require('./Player');
 const proxyManager = require('./helpers/proxyManager');
+const youtubeCircuit = require('./helpers/youtubeCircuit');
 
 const binPath = path.resolve(__dirname, process.platform === 'win32' ? '../bin/yt-dlp.exe' : '../bin/yt-dlp');
 const cacheDir = path.resolve(__dirname, '../music_cache');
@@ -26,13 +27,11 @@ class QueueManager extends EventEmitter {
         super();
         this.client = client;
         this.players = new Map();
-        this.isYouTubeBlocked = false;
-        this.lastYouTubeCheckTime = 0;
         this._searchQueue = [];
         this._activeSearches = 0;
-        this._maxConcurrentSearches = 2; // Limit concurrent yt-dlp child processes to preserve 256MB RAM
+        this._maxConcurrentSearches = 2; // Limit concurrent yt-dlp child processes to preserve RAM
 
-        // Fire-and-forget cache cleanup when a track finishes (non-blocking)
+        // Fire-and-forget cache cleanup when a track finishes
         this.on('playerEnd', (player, track) => this._deleteTrackCacheAsync(player, track));
     }
 
@@ -61,8 +60,8 @@ class QueueManager extends EventEmitter {
     }
 
     /**
-     * Executes yt-dlp metadata extraction with concurrency limiter and anti-bot arguments.
-     * Omits heavy JS runtimes to save ~50MB RAM per call.
+     * Executes yt-dlp metadata extraction with concurrency limiter.
+     * Uses 10s fast timeout and verified proxy only.
      */
     _fetchYtDlpJson(query) {
         return new Promise((resolve) => {
@@ -73,16 +72,17 @@ class QueueManager extends EventEmitter {
                     '--flat-playlist',
                     '--playlist-items', '1:25',
                     '--no-warnings',
-                    '--no-playlist-reverse'
+                    '--no-playlist-reverse',
+                    '--socket-timeout', '6'
                 ];
 
                 const isSoundCloud = query.includes('soundcloud.com') || query.startsWith('scsearch');
                 const cookiesPath = path.resolve(__dirname, '../cookies.txt');
                 const hasCookies = fs.existsSync(cookiesPath);
-                const activeProxy = proxyManager.getProxyUrl();
+                const activeProxy = isSoundCloud ? null : proxyManager.getYouTubeProxy();
                 const useIPv6 = process.env.USE_IPV6 === 'true';
 
-                if (activeProxy && !isSoundCloud) {
+                if (activeProxy) {
                     args.push('--proxy', activeProxy);
                 } else if (useIPv6 && !isSoundCloud) {
                     args.push('--force-ipv6');
@@ -99,15 +99,13 @@ class QueueManager extends EventEmitter {
                 args.push(query);
 
                 const startTime = Date.now();
-                execFile(binPath, args, { maxBuffer: 4 * 1024 * 1024, timeout: 25000, killSignal: 'SIGKILL' }, (err, stdout, stderr) => {
+                execFile(binPath, args, { maxBuffer: 4 * 1024 * 1024, timeout: 10000, killSignal: 'SIGKILL' }, (err, stdout, stderr) => {
                     this._activeSearches--;
                     this._processNextSearch();
 
                     const outputErr = (stderr || '') + (err?.message || '');
-                    if (outputErr.includes('Sign in to confirm') || outputErr.includes('bot') || outputErr.includes('429')) {
-                        this.isYouTubeBlocked = true;
-                        this.lastYouTubeCheckTime = Date.now();
-                        console.warn('[QueueManager] YouTube Anti-Bot IP block detected. Switching to fallback search mode.');
+                    if (youtubeCircuit.constructor.isBotBlock(outputErr)) {
+                        youtubeCircuit.trip(outputErr);
                     }
 
                     if (err || !stdout) {
@@ -147,14 +145,14 @@ class QueueManager extends EventEmitter {
     }
 
     /**
-     * Resolves basic track metadata via YouTube's public oEmbed API.
-     * This endpoint NEVER blocks datacenter IPs and does not require cookies/login.
+     * Resolves basic track metadata via YouTube public oEmbed API (~0.3s).
+     * Never blocked by datacenter IPs.
      */
     async _fetchYouTubeOEmbed(url) {
         try {
             const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 4000);
+            const timeout = setTimeout(() => controller.abort(), 3500);
             const res = await fetch(oembedUrl, { signal: controller.signal });
             clearTimeout(timeout);
 
@@ -177,8 +175,7 @@ class QueueManager extends EventEmitter {
     }
 
     /**
-     * Smart Multi-Tier Search Engine:
-     * Fast, resilient to YouTube IP bans, with automatic fallback to SoundCloud.
+     * Multi-Tier Search Engine with Circuit Breaker and Instant Fallback.
      */
     async search(query, options = {}) {
         const requester = options.requester;
@@ -186,11 +183,6 @@ class QueueManager extends EventEmitter {
 
         if (!cleanQuery) {
             return { type: 'SEARCH', tracks: [] };
-        }
-
-        // Reset YouTube block status after 10 minutes to re-test if unblocked
-        if (this.isYouTubeBlocked && Date.now() - this.lastYouTubeCheckTime > 10 * 60 * 1000) {
-            this.isYouTubeBlocked = false;
         }
 
         const isUrl = cleanQuery.startsWith('http://') || cleanQuery.startsWith('https://');
@@ -206,10 +198,24 @@ class QueueManager extends EventEmitter {
                 }
             }
 
+            const isYouTubeUrl = cleanQuery.includes('youtube.com') || cleanQuery.includes('youtu.be');
+
+            // FAST-TRACK: If circuit is OPEN and it's a YouTube URL, directly use oEmbed (<0.5s)
+            if (isYouTubeUrl && !isPlaylist && youtubeCircuit.isOpen()) {
+                console.log('[QueueManager] YouTube circuit open. Instant oEmbed metadata bypass...');
+                const oembedData = await this._fetchYouTubeOEmbed(targetUrl);
+                if (oembedData) {
+                    return {
+                        type: 'TRACK',
+                        tracks: [new Track(oembedData, requester)]
+                    };
+                }
+            }
+
             let data = await this._fetchYtDlpJson(targetUrl);
 
-            // If yt-dlp metadata failed on YouTube URL (e.g. server IP blocked), use oEmbed bypass
-            if (!data && (cleanQuery.includes('youtube.com') || cleanQuery.includes('youtu.be'))) {
+            // Fallback to oEmbed if yt-dlp metadata failed on YouTube URL
+            if (!data && isYouTubeUrl && !isPlaylist) {
                 console.log('[QueueManager] yt-dlp blocked on URL. Using YouTube oEmbed anti-ban bypass...');
                 data = await this._fetchYouTubeOEmbed(targetUrl);
             }
@@ -241,9 +247,8 @@ class QueueManager extends EventEmitter {
             .trim();
         const searchKeyword = sanitized || cleanQuery;
 
-        // If YouTube is known to be IP-blocked, jump directly to SoundCloud for sub-second search
-        if (this.isYouTubeBlocked || options.engine === 'soundcloud') {
-            console.log(`[QueueManager] Fast SoundCloud search for: "${searchKeyword}"`);
+        // If explicit soundcloud engine requested
+        if (options.engine === 'soundcloud') {
             const scData = await this._fetchYtDlpJson(`scsearch5:${searchKeyword}`);
             if (scData && scData.entries && scData.entries.length > 0) {
                 return {
@@ -253,10 +258,10 @@ class QueueManager extends EventEmitter {
             }
         }
 
-        // Primary: YouTube Search
+        // Primary: YouTube Search (fast flat metadata search ~1.5s)
         let data = await this._fetchYtDlpJson(`ytsearch5:${cleanQuery}`);
 
-        // If YouTube search failed or blocked, immediately fallback to SoundCloud search
+        // If YouTube search failed or returned 0 entries, search SoundCloud
         if (!data || !data.entries || data.entries.length === 0) {
             console.log(`[QueueManager] YouTube search missed or blocked. Falling back to SoundCloud for: "${searchKeyword}"`);
             data = await this._fetchYtDlpJson(`scsearch5:${searchKeyword}`);
@@ -273,19 +278,16 @@ class QueueManager extends EventEmitter {
     }
 
     /**
-     * Delete the cache file of a finished track asynchronously (fire-and-forget).
-     * Callback-based fs.unlink so it never blocks the queue advance.
+     * Delete cache file of a finished track asynchronously (fire-and-forget).
      */
     _deleteTrackCacheAsync(player, track) {
         if (!track) return;
-        // Keep the cache when looping the same track: the replay needs it
         if (player && player.loop === 'track') return;
 
         const identifier = track.identifier || Buffer.from(track.uri || '').toString('hex').slice(0, 20);
         if (!identifier) return;
 
         const cachePath = path.resolve(cacheDir, `${identifier}.opus`);
-        // Path safety: only delete files inside the cache directory
         if (!cachePath.startsWith(cacheDir + path.sep)) return;
 
         setTimeout(() => {

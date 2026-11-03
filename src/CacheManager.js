@@ -2,6 +2,7 @@ const { execFile, spawn, execSync } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const proxyManager = require('./helpers/proxyManager');
+const youtubeCircuit = require('./helpers/youtubeCircuit');
 
 class CacheManager {
     constructor() {
@@ -10,6 +11,7 @@ class CacheManager {
         
         this.ffmpegBundlePath = path.resolve(__dirname, '../bin/ffmpeg-bundle');
         this.ffmpegPath = path.join(this.ffmpegBundlePath, process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg');
+        this.scMatchCache = new Map(); // identifier -> scsearch query
         
         // Setup directories and binaries
         try {
@@ -40,7 +42,6 @@ class CacheManager {
                 this.ffmpegPath = systemFfmpeg;
                 console.log(`[CacheManager] Using system FFmpeg: ${this.ffmpegPath}`);
             } else if (!fs.existsSync(this.ffmpegPath) && process.platform !== 'win32') {
-                // Download standalone ffmpeg (only ffmpeg, NOT ffprobe)
                 console.log('[CacheManager] Downloading standalone ffmpeg binary...');
                 execSync(`curl -L "https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/ffmpeg-linux-x64" -o "${this.ffmpegPath}"`);
                 fs.chmodSync(this.ffmpegPath, 0o755);
@@ -71,9 +72,10 @@ class CacheManager {
             '--no-playlist',
             '--no-warnings',
             '--no-progress',
-            '--retries', '5',
-            '--fragment-retries', '5',
+            '--retries', '1',
+            '--fragment-retries', '2',
             '--retry-sleep', '1',
+            '--socket-timeout', '6',
             '--buffer-size', '16K',
             '-f', '251/bestaudio/best'
         ];
@@ -81,10 +83,11 @@ class CacheManager {
         const isSoundCloud = source.includes('soundcloud.com') || source.startsWith('scsearch');
         const cookiesPath = path.resolve(__dirname, '../cookies.txt');
         const hasCookies = fs.existsSync(cookiesPath);
-        const activeProxy = proxyManager.getProxyUrl();
+        // Only use proxy verified for YouTube, so unverified proxies do not stall requests
+        const activeProxy = isSoundCloud ? null : proxyManager.getYouTubeProxy();
         const useIPv6 = process.env.USE_IPV6 === 'true';
 
-        if (activeProxy && !isSoundCloud) {
+        if (activeProxy) {
             args.push('--proxy', activeProxy);
         } else if (useIPv6 && !isSoundCloud) {
             args.push('--force-ipv6');
@@ -112,6 +115,11 @@ class CacheManager {
     }
 
     _getSoundCloudFallback(track) {
+        const identifier = track.identifier || track.uri;
+        if (identifier && this.scMatchCache.has(identifier)) {
+            return this.scMatchCache.get(identifier);
+        }
+
         const title = track.title || '';
         const author = track.author || '';
         const cleanTitle = title
@@ -126,45 +134,72 @@ class CacheManager {
         if (author && !isTopicOrLabel && !query.toLowerCase().includes(author.toLowerCase())) {
             query = `${query} ${author}`;
         }
-        return query ? `scsearch1:${query.trim()}` : null;
+        const res = query ? `scsearch1:${query.trim()}` : null;
+        if (identifier && res) {
+            if (this.scMatchCache.size > 200) {
+                const firstKey = this.scMatchCache.keys().next().value;
+                this.scMatchCache.delete(firstKey);
+            }
+            this.scMatchCache.set(identifier, res);
+        }
+        return res;
+    }
+
+    _streamFromDisk(targetPath, seekSeconds = 0, volume = 100) {
+        const ffmpegArgs = ['-nostdin', '-loglevel', 'error'];
+        if (seekSeconds > 0) {
+            ffmpegArgs.push('-ss', seekSeconds.toString());
+        }
+        ffmpegArgs.push('-i', targetPath);
+        if (typeof volume === 'number' && volume !== 100) {
+            ffmpegArgs.push('-af', `volume=${(volume / 100).toFixed(2)}`, '-c:a', 'libopus', '-b:a', '96k');
+        } else {
+            ffmpegArgs.push('-c:a', 'copy');
+        }
+        ffmpegArgs.push('-f', 'opus', 'pipe:1');
+
+        const ffmpegProc = spawn(this.ffmpegPath, ffmpegArgs);
+        ffmpegProc.on('error', (err) => console.error('[CacheManager] ffmpeg cached stream error:', err.message));
+        ffmpegProc.stdout.kill = () => {
+            try { ffmpegProc.kill('SIGKILL'); } catch {}
+        };
+        return ffmpegProc.stdout;
     }
 
     async createTrackStream(track, seekSeconds = 0, volume = 100) {
         const identifier = track.identifier || Buffer.from(track.uri || '').toString('hex').slice(0, 20);
         const targetPath = this.getTrackPath(identifier);
 
-        // 1. If not cached and not a live stream, download cleanly to disk (100% immune to stream socket dropouts)
-        if (!this.isCached(identifier) && !track.isStream) {
-            try {
-                await this.prepareTrack(track);
-            } catch (err) {
-                console.warn(`[CacheManager] Prepare track fallback notice (${err.message}). Trying direct stream...`);
-            }
-        }
-
-        // 2. Play from cached file if present
+        // 1. Play from cached file if present (<0.1s latency)
         if (this.isCached(identifier)) {
-            const ffmpegArgs = ['-nostdin', '-loglevel', 'error'];
-            if (seekSeconds > 0) {
-                ffmpegArgs.push('-ss', seekSeconds.toString());
-            }
-            ffmpegArgs.push('-i', targetPath);
-            if (typeof volume === 'number' && volume !== 100) {
-                ffmpegArgs.push('-af', `volume=${(volume / 100).toFixed(2)}`, '-c:a', 'libopus', '-b:a', '96k');
-            } else {
-                ffmpegArgs.push('-c:a', 'copy');
-            }
-            ffmpegArgs.push('-f', 'opus', 'pipe:1');
-
-            const ffmpegProc = spawn(this.ffmpegPath, ffmpegArgs);
-            ffmpegProc.on('error', (err) => console.error('[CacheManager] ffmpeg cached stream error:', err.message));
-            ffmpegProc.stdout.kill = () => {
-                try { ffmpegProc.kill('SIGKILL'); } catch {}
-            };
-            return ffmpegProc.stdout;
+            return this._streamFromDisk(targetPath, seekSeconds, volume);
         }
 
-        // 3. Fallback to direct streaming (e.g. for Live Streams)
+        const isYouTube = !track.uri?.includes('soundcloud.com');
+
+        // 2. FAST PATH: If YouTube circuit is OPEN, do not waste time attempting YouTube!
+        // Immediately pipe from SoundCloud (latency ~2-3s).
+        if (isYouTube && youtubeCircuit.isOpen()) {
+            return this._trySoundCloudFallback(track, seekSeconds, volume);
+        }
+
+        // 3. If YouTube circuit is closed, try fast prepareTrack (12s cap)
+        if (!track.isStream) {
+            try {
+                await this.prepareTrack(track, false);
+                if (this.isCached(identifier)) {
+                    return this._streamFromDisk(targetPath, seekSeconds, volume);
+                }
+            } catch (err) {
+                console.warn(`[CacheManager] Primary track preparation failed: ${err.message}. Fast-switching to SoundCloud...`);
+                if (youtubeCircuit.constructor.isBotBlock(err.message)) {
+                    youtubeCircuit.trip(err.message);
+                }
+                return this._trySoundCloudFallback(track, seekSeconds, volume);
+            }
+        }
+
+        // 4. Fallback to direct streaming (e.g. for Live Streams)
         return this._spawnPipedStream(track, track.uri, seekSeconds, volume, false);
     }
 
@@ -234,9 +269,13 @@ class CacheManager {
                 if (isHandled || hasOutput) return;
                 isHandled = true;
 
-                const activeProxy = proxyManager.getProxyUrl();
+                const activeProxy = proxyManager.getYouTubeProxy();
                 if (activeProxy && !isFallback) {
                     proxyManager.reportFailure(activeProxy, reason);
+                }
+
+                if (isBotBan) {
+                    youtubeCircuit.trip(reason);
                 }
 
                 if (streamTimeout) {
@@ -262,7 +301,7 @@ class CacheManager {
             stream.once('data', (chunk) => {
                 hasOutput = true;
                 isHandled = true;
-                const activeProxy = proxyManager.getProxyUrl();
+                const activeProxy = proxyManager.getYouTubeProxy();
                 if (activeProxy && !isFallback) {
                     proxyManager.reportSuccess(activeProxy, Date.now() - startTime);
                 }
@@ -289,11 +328,7 @@ class CacheManager {
 
             ytdlpProc.on('close', async (code) => {
                 if (code !== 0 && !hasOutput) {
-                    const isBotBan = stderrBuffer.includes('Sign in to confirm') || 
-                                     stderrBuffer.includes('bot') || 
-                                     stderrBuffer.includes('429') ||
-                                     stderrBuffer.includes('403') ||
-                                     stderrBuffer.includes('Private video');
+                    const isBotBan = youtubeCircuit.constructor.isBotBlock(stderrBuffer);
 
                     console.warn(`[CacheManager] yt-dlp exited (code ${code})${isBotBan ? ' [YouTube Anti-Bot detected]' : ''}`);
                     if (stderrBuffer) {
@@ -312,13 +347,13 @@ class CacheManager {
                 }
             });
 
-            // Allow up to 30s for proxy handshake and audio buffering
+            // 12s primary timeout (fast failover instead of 30s)
             streamTimeout = setTimeout(async () => {
                 if (!hasOutput && !isFallback) {
-                    console.warn(`[CacheManager] Primary stream timed out (30s limit) for "${track.title}"`);
+                    console.warn(`[CacheManager] Primary stream timed out (12s limit) for "${track.title}"`);
                     await triggerFallbackOrReject('Primary stream timed out');
                 }
-            }, 30000);
+            }, 12000);
             streamTimeout.unref();
         });
     }
@@ -333,7 +368,6 @@ class CacheManager {
 
     /**
      * Download and cache track on-disk.
-     * Guarantees 100% immune to stream socket timeouts and network stalls.
      */
     async prepareTrack(track, isBackground = false) {
         const identifier = track.identifier || Buffer.from(track.uri || '').toString('hex').slice(0, 20);
@@ -359,14 +393,36 @@ class CacheManager {
 
         const downloadPromise = (async () => {
             const outTemplate = path.join(this.cacheDir, `${identifier}.%(ext)s`);
-            const args = this._buildYtDlpArgs(track.uri, false, outTemplate);
+            const isYouTube = !track.uri?.includes('soundcloud.com');
 
-            const activeProxy = proxyManager.getProxyUrl();
+            // If circuit is open, download directly from SoundCloud
+            if (isYouTube && youtubeCircuit.isOpen()) {
+                const fallback = this._getSoundCloudFallback(track);
+                if (fallback) {
+                    const fbArgs = this._buildYtDlpArgs(fallback, false, outTemplate);
+                    await new Promise((resolve, reject) => {
+                        execFile(this.binPath, fbArgs, { maxBuffer: 8 * 1024 * 1024, timeout: 35000 }, (fbErr) => {
+                            if (fbErr) return reject(fbErr);
+                            resolve();
+                        });
+                    });
+                    track.realSource = 'SoundCloud (Bypass Fallback)';
+                    if (fs.existsSync(targetPath)) return targetPath;
+                }
+            }
+
+            const args = this._buildYtDlpArgs(track.uri, false, outTemplate);
+            const activeProxy = isYouTube ? proxyManager.getYouTubeProxy() : null;
             const startTime = Date.now();
+            const downloadTimeout = isBackground ? 35000 : 12000;
+
             try {
                 await new Promise((resolve, reject) => {
-                    execFile(this.binPath, args, { maxBuffer: 8 * 1024 * 1024, timeout: 120000 }, (err) => {
-                        if (err) return reject(err);
+                    execFile(this.binPath, args, { maxBuffer: 8 * 1024 * 1024, timeout: downloadTimeout }, (err, stdout, stderr) => {
+                        if (err) {
+                            const errMsg = (stderr || '') + (err.message || '');
+                            return reject(new Error(errMsg));
+                        }
                         resolve();
                     });
                 });
@@ -378,18 +434,21 @@ class CacheManager {
                 if (activeProxy) {
                     proxyManager.reportFailure(activeProxy, err.message);
                 }
+                if (youtubeCircuit.constructor.isBotBlock(err.message)) {
+                    youtubeCircuit.trip(err.message);
+                }
                 // Try SoundCloud fallback download
                 const fallback = this._getSoundCloudFallback(track);
                 if (fallback && !track.uri.includes('soundcloud.com')) {
                     const fbArgs = this._buildYtDlpArgs(fallback, false, outTemplate);
                     await new Promise((resolve, reject) => {
-                        execFile(this.binPath, fbArgs, { maxBuffer: 8 * 1024 * 1024, timeout: 120000 }, (fbErr) => {
+                        execFile(this.binPath, fbArgs, { maxBuffer: 8 * 1024 * 1024, timeout: 35000 }, (fbErr) => {
                             if (fbErr) return reject(fbErr);
                             resolve();
                         });
                     });
                     track.realSource = 'SoundCloud (Bypass Fallback)';
-                    console.log(`[CacheManager] 🔀 YouTube blocked. Successfully streamed from SoundCloud (Bypass): "${track.title}"`);
+                    console.log(`[CacheManager] Track cached via SoundCloud: "${track.title}"`);
                 } else {
                     throw err;
                 }
@@ -410,7 +469,7 @@ class CacheManager {
 
     /**
      * Strict Disk LRU Sweeper:
-     * Enforces strict 50MB disk quota to protect the 512MB container from ENOSPC errors.
+     * Enforces strict 50MB disk quota to protect container from ENOSPC errors.
      */
     cleanOldCache(maxAgeHours = 2) {
         try {
@@ -435,7 +494,6 @@ class CacheManager {
                 } catch {}
             }
 
-            // If total cache exceeds 50MB, delete oldest files until under 30MB
             const maxCacheBytes = 50 * 1024 * 1024;
             const targetBytes = 30 * 1024 * 1024;
             if (totalSizeBytes > maxCacheBytes) {
