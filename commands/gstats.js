@@ -25,7 +25,7 @@ module.exports = {
         const proxyManager = require('../src/helpers/proxyManager');
         const proxyStatus = proxyManager.getStatus();
         const proxyBadge = proxyStatus.configured
-            ? (proxyStatus.isOnline ? `🟢 Smart Pool (${proxyStatus.activeCount} Live | ${proxyStatus.bestLatency})` : '🔴 Pool Exhausted (Retrying)')
+            ? (proxyStatus.isOnline ? `🟢 Smart Pool (${proxyStatus.activeCount} Live | 🚫 ${proxyStatus.blacklistCount || 0} Blocked | ${proxyStatus.bestLatency})` : '🔴 Pool Exhausted (Retrying)')
             : '⚪ Direct (Bypass Mode)';
 
         const embed = new EmbedBuilder()

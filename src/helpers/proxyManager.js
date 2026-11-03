@@ -47,6 +47,34 @@ class ProxyManager {
         smartProxyPool.reportFailure(proxyUrl, reason);
     }
 
+    /**
+     * Tests a proxy specifically against YouTube.
+     */
+    async testYouTube(proxyUrl) {
+        return await smartProxyPool.testProxyYouTube(proxyUrl);
+    }
+
+    /**
+     * Manually blacklists a proxy.
+     */
+    blacklistProxy(proxyUrl, reason, durationMs) {
+        return smartProxyPool.blacklistProxy(proxyUrl, reason, durationMs);
+    }
+
+    /**
+     * Unblacklists a proxy.
+     */
+    unblacklist(proxyUrl) {
+        return smartProxyPool.unblacklist(proxyUrl);
+    }
+
+    /**
+     * Clears all blacklisted proxies.
+     */
+    clearBlacklist() {
+        return smartProxyPool.clearBlacklist();
+    }
+
     getStatus() {
         const poolStatus = smartProxyPool.getStatus();
         const best = poolStatus.bestProxy;
@@ -57,10 +85,13 @@ class ProxyManager {
             url: best || 'None',
             poolSize: poolStatus.total,
             activeCount: poolStatus.activeCount,
+            blacklistCount: poolStatus.blacklistCount,
             bestScore: poolStatus.bestScore,
             bestLatency: poolStatus.bestLatency,
+            isYoutubeVerified: poolStatus.isYoutubeVerified,
+            blacklisted: poolStatus.blacklisted,
             label: poolStatus.activeCount > 0 
-                ? `Pool Active (${poolStatus.activeCount} online | Best: ${best} [${poolStatus.bestLatency}])`
+                ? `Pool Active (${poolStatus.activeCount} online | Best: ${best} [${poolStatus.bestLatency}]${poolStatus.isYoutubeVerified ? ' Verified' : ''})`
                 : 'Direct (Bypass Mode)'
         };
     }
