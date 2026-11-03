@@ -16,6 +16,7 @@ class Track {
         this.uri = data.url || (data.id ? `https://www.youtube.com/watch?v=${data.id}` : data.uri);
         this.identifier = data.id || data.identifier || '';
         this.length = (data.duration ? data.duration * 1000 : (data.length || 0));
+        this.duration = data.duration || (this.length ? Math.round(this.length / 1000) : 0);
         this.thumbnail = data.thumbnails && data.thumbnails.length ? data.thumbnails[data.thumbnails.length - 1].url : (data.thumbnail || null);
         this.isStream = data.is_live || false;
         this.requester = requester;

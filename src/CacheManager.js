@@ -186,23 +186,30 @@ class CacheManager {
             return this._trySoundCloudFallback(track, seekSeconds, volume);
         }
 
-        // 3. If YouTube circuit is closed, try fast prepareTrack (12s cap)
-        if (!track.isStream) {
-            try {
-                await this.prepareTrack(track, false);
-                if (this.isCached(identifier)) {
-                    return this._streamFromDisk(targetPath, seekSeconds, volume);
-                }
-            } catch (err) {
-                console.warn(`[CacheManager] Primary track preparation failed: ${err.message}. Fast-switching to SoundCloud...`);
-                if (youtubeCircuit.constructor.isBotBlock(err.message)) {
-                    youtubeCircuit.trip(err.message);
-                }
-                return this._trySoundCloudFallback(track, seekSeconds, volume);
-            }
+        // 3. Long tracks (>6 mins), live streams, or seeking: stream directly via live pipe (<2s latency)
+        const durationSec = track.duration || (track.length ? Math.round(track.length / 1000) : 0);
+        if (track.isStream || durationSec > 360 || seekSeconds > 0) {
+            console.log(`[CacheManager:Stream] Live pipe stream for "${track.title}" (Duration: ${durationSec}s, Seek: ${seekSeconds}s)`);
+            return this._spawnPipedStream(track, track.uri, seekSeconds, volume, false);
         }
 
-        // 4. Fallback to direct streaming (e.g. for Live Streams)
+        // 4. Standard tracks (<=6 mins): attempt fast disk cache for instant replay/loops
+        try {
+            await this.prepareTrack(track, false);
+            if (this.isCached(identifier)) {
+                return this._streamFromDisk(targetPath, seekSeconds, volume);
+            }
+        } catch (err) {
+            if (youtubeCircuit.constructor.isBotBlock(err.message)) {
+                console.warn(`[CacheManager] Anti-bot block detected: ${err.message}. Fast-switching to SoundCloud...`);
+                youtubeCircuit.trip(err.message);
+                return this._trySoundCloudFallback(track, seekSeconds, volume);
+            }
+            console.log(`[CacheManager] Disk caching timed out for "${track.title}". Streaming directly via live pipe...`);
+            return this._spawnPipedStream(track, track.uri, seekSeconds, volume, false);
+        }
+
+        // 5. Fallback to direct streaming (e.g. for Live Streams)
         return this._spawnPipedStream(track, track.uri, seekSeconds, volume, false);
     }
 
@@ -418,7 +425,7 @@ class CacheManager {
             const args = this._buildYtDlpArgs(track.uri, false, outTemplate);
             const activeProxy = isYouTube ? proxyManager.getYouTubeProxy() : null;
             const startTime = Date.now();
-            const downloadTimeout = isBackground ? 35000 : 12000;
+            const downloadTimeout = isBackground ? 45000 : 25000;
 
             try {
                 await new Promise((resolve, reject) => {
