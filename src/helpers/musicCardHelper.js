@@ -13,9 +13,9 @@ function formatDuration(ms) {
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
 }
 
-function createProgressBar(currentMs, totalMs, barLength = 14) {
+function createProgressBar(currentMs, totalMs, barLength = 15) {
     if (!totalMs || totalMs <= 0 || isNaN(totalMs)) {
-        return '🟣──────────────────';
+        return '━━━━━━━━━━━━━━━';
     }
 
     const ratio = Math.min(1, Math.max(0, currentMs / totalMs));
@@ -24,14 +24,14 @@ function createProgressBar(currentMs, totalMs, barLength = 14) {
     let bar = '';
     for (let i = 0; i < barLength; i++) {
         if (i === activeIndex) {
-            bar += '●';
+            bar += '🔘';
         } else if (i < activeIndex) {
             bar += '━';
         } else {
             bar += '─';
         }
     }
-    return `🟣${bar}`;
+    return bar;
 }
 
 function createNowPlayingCard(player, track) {
@@ -49,50 +49,42 @@ function createNowPlayingCard(player, track) {
     const membersCount = voiceChannel ? voiceChannel.members.filter(m => !m.user.bot).size : 1;
 
     let sourceBadge = '🔴 YouTube';
-    let sourceDetail = '';
-
     if (track.realSource) {
         if (track.realSource.includes('Bypass')) {
             sourceBadge = '🟠 SoundCloud (Bypass)';
-            sourceDetail = '📡 **แหล่งที่มาเสียงจริง:** `🟠 SoundCloud (Bypass IP Block)`\n';
         } else if (track.realSource.includes('SoundCloud')) {
             sourceBadge = '🟠 SoundCloud';
-            sourceDetail = '📡 **แหล่งที่มาเสียงจริง:** `🟠 SoundCloud (Direct)`\n';
         } else {
             sourceBadge = '🔴 YouTube';
-            sourceDetail = '📡 **แหล่งที่มาเสียงจริง:** `🔴 YouTube (Direct)`\n';
         }
     } else if (track.uri && track.uri.includes('soundcloud.com')) {
         sourceBadge = '🟠 SoundCloud';
-        sourceDetail = '📡 **แหล่งที่มาเสียงจริง:** `🟠 SoundCloud (Direct)`\n';
-    } else {
-        sourceBadge = '🔴 YouTube';
-        sourceDetail = '📡 **แหล่งที่มาเสียงจริง:** `🔴 YouTube`\n';
     }
 
     let loopBadge = '🔁 Off';
     if (player.loop === 'track') loopBadge = '🔂 Track';
     else if (player.loop === 'queue') loopBadge = '🔁 Queue';
 
-    const safeTitle = track.title ? track.title.replace(/\[/g, '(').replace(/\]/g, ')') : 'Unknown Title';
+    const volBadge = `🔊 ${player.volume || 100}%`;
+    const requesterTag = track.requester ? `  •  👤 <@${track.requester.id || track.requester}>` : '';
+    const safeTitle = track.title || 'Unknown Title';
     const safeAuthor = track.author || 'Unknown Artist';
 
     const embed = new EmbedBuilder()
-        .setColor('#2b2d31') // Modern dark card aesthetic
+        .setColor('#FF69B4')
         .setAuthor({
-            name: 'DisLava Music  •  Now Playing',
+            name: `${player.manager.client.user.username}  •  Now Playing`,
             iconURL: player.manager.client.user.displayAvatarURL()
         })
         .setTitle(safeTitle)
         .setURL(track.uri || 'https://discord.com')
         .setDescription(
-            `**${safeAuthor}**\n\n` +
-            `${sourceDetail}` +
-            `\`${sourceBadge}\`  \`⚡ 320kbps\`  \`${loopBadge}\`\n\n` +
-            `\`${timeCurrent}\` ${progressVisual} \`${timeTotal}\``
+            `**${safeAuthor}**${requesterTag}\n\n` +
+            `\`${sourceBadge}\`  \`⚡ 320kbps\`  \`${loopBadge}\`  \`${volBadge}\`\n\n` +
+            `\`${timeCurrent}\`  ${progressVisual}  \`${timeTotal}\``
         )
         .setFooter({
-            text: `🔊 Connected to: #${channelName}  •  👥 Members in Voice: ${membersCount}`
+            text: `🔊 #${channelName}  •  👥 ${membersCount} listening`
         });
 
     if (track.thumbnail) {
