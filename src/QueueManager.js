@@ -70,7 +70,7 @@ class QueueManager extends EventEmitter {
                 const args = [
                     '-J',
                     '--flat-playlist',
-                    '--playlist-items', '1:25',
+                    '--playlist-items', '1:50',
                     '--no-warnings',
                     '--no-playlist-reverse'
                 ];
@@ -179,9 +179,12 @@ class QueueManager extends EventEmitter {
         // --- Case 1: Direct URL provided ---
         if (isUrl) {
             let targetUrl = cleanQuery;
-            const ytMatch = cleanQuery.match(/(?:v=|\/embed\/|\/17\/|\/v\/|https:\/\/youtu\.be\/|\/shorts\/)([a-zA-Z0-9_-]{11})/);
-            if (ytMatch && !cleanQuery.includes('playlist')) {
-                targetUrl = `https://www.youtube.com/watch?v=${ytMatch[1]}`;
+            const isPlaylist = cleanQuery.includes('list=') || cleanQuery.includes('/playlist');
+            if (!isPlaylist) {
+                const ytMatch = cleanQuery.match(/(?:v=|\/embed\/|\/17\/|\/v\/|https:\/\/youtu\.be\/|\/shorts\/)([a-zA-Z0-9_-]{11})/);
+                if (ytMatch) {
+                    targetUrl = `https://www.youtube.com/watch?v=${ytMatch[1]}`;
+                }
             }
 
             let data = await this._fetchYtDlpJson(targetUrl);
@@ -194,7 +197,8 @@ class QueueManager extends EventEmitter {
 
             if (data) {
                 if (data._type === 'playlist' && data.entries && data.entries.length > 0) {
-                    const tracks = data.entries.slice(0, 25).map(e => new Track(e, requester));
+                    const validEntries = data.entries.filter(e => e && (e.id || e.url) && e.title && !e.title.includes('[Private video]') && !e.title.includes('[Deleted video]'));
+                    const tracks = validEntries.map(e => new Track(e, requester));
                     return {
                         type: 'PLAYLIST',
                         playlistName: data.title || 'Playlist',
