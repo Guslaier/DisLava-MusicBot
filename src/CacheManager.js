@@ -170,6 +170,7 @@ class CacheManager {
 
     _spawnPipedStream(track, sourceUri, seekSeconds = 0, volume = 100, isFallback = false) {
         return new Promise((resolve, reject) => {
+            const startTime = Date.now();
             const ytdlpArgs = this._buildYtDlpArgs(sourceUri, true);
             const ytdlpProc = spawn(this.binPath, ytdlpArgs);
 
@@ -233,6 +234,11 @@ class CacheManager {
                 if (isHandled || hasOutput) return;
                 isHandled = true;
 
+                const activeProxy = proxyManager.getProxyUrl();
+                if (activeProxy && !isFallback) {
+                    proxyManager.reportFailure(activeProxy, reason);
+                }
+
                 if (streamTimeout) {
                     clearTimeout(streamTimeout);
                     streamTimeout = null;
@@ -256,6 +262,10 @@ class CacheManager {
             stream.once('data', (chunk) => {
                 hasOutput = true;
                 isHandled = true;
+                const activeProxy = proxyManager.getProxyUrl();
+                if (activeProxy && !isFallback) {
+                    proxyManager.reportSuccess(activeProxy, Date.now() - startTime);
+                }
                 track.realSource = isFallback ? 'SoundCloud (Bypass Fallback)' : (track.uri && track.uri.includes('soundcloud.com') ? 'SoundCloud (Direct)' : 'YouTube (Direct)');
                 if (streamTimeout) {
                     clearTimeout(streamTimeout);
@@ -351,6 +361,8 @@ class CacheManager {
             const outTemplate = path.join(this.cacheDir, `${identifier}.%(ext)s`);
             const args = this._buildYtDlpArgs(track.uri, false, outTemplate);
 
+            const activeProxy = proxyManager.getProxyUrl();
+            const startTime = Date.now();
             try {
                 await new Promise((resolve, reject) => {
                     execFile(this.binPath, args, { maxBuffer: 8 * 1024 * 1024, timeout: 120000 }, (err) => {
@@ -358,8 +370,14 @@ class CacheManager {
                         resolve();
                     });
                 });
+                if (activeProxy) {
+                    proxyManager.reportSuccess(activeProxy, Date.now() - startTime);
+                }
                 track.realSource = track.uri && track.uri.includes('soundcloud.com') ? 'SoundCloud (Direct)' : 'YouTube (Direct)';
             } catch (err) {
+                if (activeProxy) {
+                    proxyManager.reportFailure(activeProxy, err.message);
+                }
                 // Try SoundCloud fallback download
                 const fallback = this._getSoundCloudFallback(track);
                 if (fallback && !track.uri.includes('soundcloud.com')) {

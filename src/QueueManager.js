@@ -98,6 +98,7 @@ class QueueManager extends EventEmitter {
 
                 args.push(query);
 
+                const startTime = Date.now();
                 execFile(binPath, args, { maxBuffer: 4 * 1024 * 1024, timeout: 25000, killSignal: 'SIGKILL' }, (err, stdout, stderr) => {
                     this._activeSearches--;
                     this._processNextSearch();
@@ -109,11 +110,22 @@ class QueueManager extends EventEmitter {
                         console.warn('[QueueManager] YouTube Anti-Bot IP block detected. Switching to fallback search mode.');
                     }
 
-                    if (err || !stdout) return resolve(null);
+                    if (err || !stdout) {
+                        if (activeProxy) {
+                            proxyManager.reportFailure(activeProxy, outputErr || err?.message);
+                        }
+                        return resolve(null);
+                    }
                     try {
                         const data = JSON.parse(stdout);
+                        if (activeProxy) {
+                            proxyManager.reportSuccess(activeProxy, Date.now() - startTime);
+                        }
                         resolve(data);
                     } catch {
+                        if (activeProxy) {
+                            proxyManager.reportFailure(activeProxy, 'JSON parse error');
+                        }
                         resolve(null);
                     }
                 });

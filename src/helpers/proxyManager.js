@@ -1,81 +1,67 @@
-const { exec } = require('child_process');
-const { promisify } = require('util');
-const execAsync = promisify(exec);
+const smartProxyPool = require('./smartProxyPool');
 
 class ProxyManager {
     constructor() {
-        this.configuredProxyUrl = process.env.PROXY_URL || null;
+        this.configuredProxyUrl = process.env.PROXY_URL ? process.env.PROXY_URL.trim() : null;
         this.isOnline = false;
         this.lastCheckTime = 0;
         this.lastError = null;
-        this._interval = null;
     }
 
     async init() {
-        if (!this.configuredProxyUrl) {
-            this.isOnline = false;
-            return;
-        }
+        // Initialize Smart Proxy Pool
+        await smartProxyPool.init();
 
-        // Initial check
-        await this.checkHealth(true);
-
-        // Periodic background polling every 45 seconds (non-blocking)
-        if (this._interval) clearInterval(this._interval);
-        this._interval = setInterval(() => {
-            this.checkHealth(false).catch(() => {});
-        }, 45 * 1000);
-        this._interval.unref();
-    }
-
-    async checkHealth(isStartup = false) {
-        if (!this.configuredProxyUrl) {
-            this.isOnline = false;
-            return false;
-        }
-
-        const wasOnline = this.isOnline;
-        this.lastCheckTime = Date.now();
-
-        try {
-            // Fast 4s timeout probe to test proxy egress
-            await execAsync(`curl -x "${this.configuredProxyUrl}" -I -s --connect-timeout 4 https://www.google.com`);
-            this.isOnline = true;
-            this.lastError = null;
-
-            if (!wasOnline && !isStartup) {
-                console.log(`[ProxyManager] Proxy connection RECOVERED: ${this.configuredProxyUrl} (Active again!)`);
-            }
-            return true;
-        } catch (err) {
-            this.isOnline = false;
-            this.lastError = err.message;
-
-            if (wasOnline && !isStartup) {
-                console.warn(`[ProxyManager] Proxy connection LOST! Falling back to direct/bypass mode.`);
-            }
-            return false;
+        if (this.configuredProxyUrl) {
+            console.log(`[ProxyManager] Static VIP proxy configured: ${this.configuredProxyUrl}`);
+        } else {
+            console.log('[ProxyManager] Running in Dynamic Smart Proxy Pool mode.');
         }
     }
 
+    /**
+     * Returns the active proxy URL to use.
+     * Prioritizes the best verified proxy from SmartProxyPool.
+     */
     getProxyUrl() {
-        return this.isOnline ? this.configuredProxyUrl : null;
+        const bestPoolProxy = smartProxyPool.getBestProxy();
+        if (bestPoolProxy) {
+            return bestPoolProxy;
+        }
+        return null;
+    }
+
+    /**
+     * Reports successful completion of a request through the proxy.
+     */
+    reportSuccess(proxyUrl, latencyMs = 0) {
+        if (!proxyUrl) return;
+        smartProxyPool.reportSuccess(proxyUrl, latencyMs);
+    }
+
+    /**
+     * Reports failure of a request through the proxy.
+     */
+    reportFailure(proxyUrl, reason = '') {
+        if (!proxyUrl) return;
+        smartProxyPool.reportFailure(proxyUrl, reason);
     }
 
     getStatus() {
-        if (!this.configuredProxyUrl) {
-            return {
-                configured: false,
-                isOnline: false,
-                label: 'None Configured'
-            };
-        }
+        const poolStatus = smartProxyPool.getStatus();
+        const best = poolStatus.bestProxy;
+
         return {
-            configured: true,
-            isOnline: this.isOnline,
-            url: this.configuredProxyUrl,
-            lastCheckTime: this.lastCheckTime,
-            label: this.isOnline ? 'Online (Active)' : 'Offline (Auto-Reconnecting...)'
+            configured: poolStatus.activeCount > 0,
+            isOnline: poolStatus.activeCount > 0,
+            url: best || 'None',
+            poolSize: poolStatus.total,
+            activeCount: poolStatus.activeCount,
+            bestScore: poolStatus.bestScore,
+            bestLatency: poolStatus.bestLatency,
+            label: poolStatus.activeCount > 0 
+                ? `Pool Active (${poolStatus.activeCount} online | Best: ${best} [${poolStatus.bestLatency}])`
+                : 'Direct (Bypass Mode)'
         };
     }
 }

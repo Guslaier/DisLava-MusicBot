@@ -386,17 +386,14 @@ async function runStartupCheck() {
         allGood = false;
     }
 
-    // 3. Initialize & Check Proxy with Auto-Recovery Health Monitor
+    // 3. Initialize & Check Proxy with Auto-Recovery Health Monitor & Smart Pool
     const proxyManager = require('./src/helpers/proxyManager');
     await proxyManager.init();
-    if (proxyManager.configuredProxyUrl) {
-        if (proxyManager.isOnline) {
-            console.log(`✅ [Proxy] Proxy is working: ${proxyManager.configuredProxyUrl}`);
-        } else {
-            console.log(`⚠️ [Proxy] Proxy is currently OFFLINE: ${proxyManager.configuredProxyUrl} (Auto-recovery polling every 45s active)`);
-        }
+    const pStatus = proxyManager.getStatus();
+    if (pStatus.configured) {
+        console.log(`✅ [Proxy] Smart Pool Active (${pStatus.activeCount} online | Best: ${pStatus.url} [${pStatus.bestLatency}])`);
     } else {
-        console.log('ℹ️ [Proxy] No proxy configured. (Direct/Bypass mode)');
+        console.log('ℹ️ [Proxy] Smart Pool standby / Direct mode. (Auto-refill running in background)');
     }
 
     // 4. Check YouTube Auth & Anti-Bot Status (Fast 8s diagnostic)
