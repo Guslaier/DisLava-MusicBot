@@ -65,6 +65,21 @@ class SettingsManager {
         this._save();
         return boundedVolume;
     }
+
+    getGuildAutoplay(guildId) {
+        const settings = this.getGuildSettings(guildId);
+        return Boolean(settings.autoplay);
+    }
+
+    setGuildAutoplay(guildId, autoplay) {
+        if (!guildId) return false;
+        const settings = this.getGuildSettings(guildId);
+        settings.autoplay = Boolean(autoplay);
+        this.cache.set(guildId, settings);
+        this._save();
+        return settings.autoplay;
+    }
 }
 
 module.exports = new SettingsManager();
+

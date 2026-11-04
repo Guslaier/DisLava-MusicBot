@@ -82,7 +82,8 @@ class Player {
         this.textId = options.textId;
         this.volume = typeof options.volume === 'number' ? options.volume : settingsManager.getGuildVolume(this.guildId);
         this.loop = 'none'; // 'none' | 'track' | 'queue'
-        this.autoplay = false;
+        this.autoplay = typeof options.autoplay === 'boolean' ? options.autoplay : settingsManager.getGuildAutoplay(this.guildId);
+        this.playedHistory = new Set();
         this.paused = false;
         this.playing = false;
         this.nowPlayingMessage = null;
@@ -193,11 +194,12 @@ class Player {
                 }
             }
 
+            const referenceTrack = finishedTrack || this.queue.previous;
             if (this.queue.length > 0) {
                 const nextTrack = this.queue.shift();
                 await this.playTrack(nextTrack);
-            } else if (this.autoplay && finishedTrack && !isSkip) {
-                const played = await this._handleAutoplay(finishedTrack);
+            } else if (this.autoplay && referenceTrack) {
+                const played = await this._handleAutoplay(referenceTrack);
                 if (!played) {
                     this.queue.current = null;
                     this.manager.emit('playerEmpty', this);
@@ -261,6 +263,14 @@ class Player {
             this.queue.current = track;
             this._position = 0;
             this.playbackStartTime = Date.now();
+            if (track) {
+                if (track.identifier) this.playedHistory.add(track.identifier);
+                if (track.uri) this.playedHistory.add(track.uri);
+                if (this.playedHistory.size > 50) {
+                    const first = this.playedHistory.values().next().value;
+                    this.playedHistory.delete(first);
+                }
+            }
 
             if (this.connection && this.connection.state.status !== VoiceConnectionStatus.Ready) {
                 await entersState(this.connection, VoiceConnectionStatus.Ready, 15_000);
@@ -388,15 +398,38 @@ class Player {
 
     async _handleAutoplay(lastTrack) {
         try {
-            const query = `${lastTrack.author || ''} song`.trim() || `${lastTrack.title} related`;
-            const result = await this.manager.search(query, {
-                requester: lastTrack.requester
+            const cleanAuthor = (lastTrack.author || '')
+                .replace(/- topic|official|channel|vevo/gi, '')
+                .trim();
+            const cleanTitle = (lastTrack.title || '')
+                .replace(/\[.*?\]|\(.*?\)|【.*?】|MV|Official|Music Video|Audio|Lyrics/gi, '')
+                .trim();
+
+            const query = cleanAuthor ? `${cleanAuthor} song` : `${cleanTitle} music`;
+            console.log(`[Player] Autoplay searching: "${query}" (Based on: "${lastTrack.title}")`);
+
+            let result = await this.manager.search(query, {
+                requester: lastTrack.requester || this.manager.client?.user
             });
 
+            if (!result || !result.tracks || result.tracks.length === 0) {
+                const fallbackQuery = `${cleanTitle} related`;
+                console.log(`[Player] Autoplay fallback searching: "${fallbackQuery}"`);
+                result = await this.manager.search(fallbackQuery, {
+                    requester: lastTrack.requester || this.manager.client?.user
+                });
+            }
+
             if (result && result.tracks && result.tracks.length > 0) {
-                const nextTrack = result.tracks.find(t => t.uri !== lastTrack.uri && t.identifier !== lastTrack.identifier) || result.tracks[0];
+                const nextTrack = result.tracks.find(t => 
+                    !this.playedHistory.has(t.identifier) && 
+                    !this.playedHistory.has(t.uri) && 
+                    t.uri !== lastTrack.uri && 
+                    t.identifier !== lastTrack.identifier
+                ) || result.tracks.find(t => t.uri !== lastTrack.uri && t.identifier !== lastTrack.identifier) || result.tracks[0];
+
                 if (nextTrack) {
-                    console.log(`[Player] Autoplay queued: "${nextTrack.title}"`);
+                    console.log(`[Player] Autoplay queued: "${nextTrack.title}" (${nextTrack.uri})`);
                     await this.playTrack(nextTrack);
                     return true;
                 }

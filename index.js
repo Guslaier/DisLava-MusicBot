@@ -276,6 +276,8 @@ client.on('interactionCreate', async interaction => {
             }
             case 'music_autoplay': {
                 player.autoplay = !player.autoplay;
+                const settingsManager = require('./src/helpers/settingsManager');
+                settingsManager.setGuildAutoplay(player.guildId, player.autoplay);
                 try {
                     const cardData = createNowPlayingCard(player, player.queue.current);
                     return await interaction.update(cardData);
