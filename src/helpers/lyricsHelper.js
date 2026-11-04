@@ -161,3 +161,4 @@ class LyricsHelper {
 }
 
 module.exports = new LyricsHelper();
+

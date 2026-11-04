@@ -180,6 +180,53 @@ client.on('interactionCreate', async interaction => {
                 await player.playPrevious();
                 return;
             }
+            case 'music_backward': {
+                const track = player.queue.current;
+                if (track.isStream) {
+                    return interaction.reply({
+                        content: '❌ ไม่สามารถกรอเพลงที่เป็น Live Stream สดได้ค่ะ 🥺',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+                const currentPos = player.position || 0;
+                const newPos = Math.max(0, currentPos - 10000);
+                await interaction.deferUpdate();
+                await player.seek(newPos);
+                if (player.nowPlayingMessage) {
+                    try {
+                        const cardData = createNowPlayingCard(player, track);
+                        await player.nowPlayingMessage.edit(cardData).catch(() => {});
+                    } catch {}
+                }
+                return;
+            }
+            case 'music_forward': {
+                const track = player.queue.current;
+                if (track.isStream) {
+                    return interaction.reply({
+                        content: '❌ ไม่สามารถกรอเพลงที่เป็น Live Stream สดได้ค่ะ 🥺',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+                const currentPos = player.position || 0;
+                const newPos = currentPos + 10000;
+                const maxDuration = track.length || 0;
+                if (maxDuration > 0 && newPos >= maxDuration) {
+                    return interaction.reply({
+                        content: '❌ กรอเกินความยาวเพลงไม่ได้ค่ะ! ดีเจแนะนำกดข้ามเพลง (⏭️) ได้เลยน้า 💋',
+                        flags: MessageFlags.Ephemeral
+                    });
+                }
+                await interaction.deferUpdate();
+                await player.seek(newPos);
+                if (player.nowPlayingMessage) {
+                    try {
+                        const cardData = createNowPlayingCard(player, track);
+                        await player.nowPlayingMessage.edit(cardData).catch(() => {});
+                    } catch {}
+                }
+                return;
+            }
             case 'music_pause_resume': {
                 player.pause(!player.paused);
                 try {

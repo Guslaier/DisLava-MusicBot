@@ -91,47 +91,49 @@ function createNowPlayingCard(player, track) {
         embed.setThumbnail(track.thumbnail);
     }
 
-    // Row 1: Playback Controls (Shuffle, Previous, Play/Pause, Skip, Loop)
+    // Row 1: Playback & Seek Controls (Previous, Rewind -10s, Play/Pause, Forward +10s, Skip)
     const row1 = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-            .setCustomId('music_shuffle')
-            .setEmoji('🔀')
-            .setStyle(ButtonStyle.Secondary),
         new ButtonBuilder()
             .setCustomId('music_previous')
             .setEmoji('⏮️')
             .setStyle(ButtonStyle.Secondary)
             .setDisabled(!player.queue.previous),
         new ButtonBuilder()
+            .setCustomId('music_backward')
+            .setEmoji('⏪')
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(isStream),
+        new ButtonBuilder()
             .setCustomId('music_pause_resume')
             .setEmoji(isPaused ? '▶️' : '⏸️')
             .setStyle(isPaused ? ButtonStyle.Success : ButtonStyle.Primary),
         new ButtonBuilder()
+            .setCustomId('music_forward')
+            .setEmoji('⏩')
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(isStream),
+        new ButtonBuilder()
             .setCustomId('music_skip')
             .setEmoji('⏭️')
+            .setStyle(ButtonStyle.Secondary)
+    );
+
+    // Row 2: Secondary Utilities (Shuffle, Loop, Queue, Volume, Close App)
+    const row2 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+            .setCustomId('music_shuffle')
+            .setEmoji('🔀')
+            .setLabel('Shuffle')
             .setStyle(ButtonStyle.Secondary),
         new ButtonBuilder()
             .setCustomId('music_loop')
-            .setEmoji('🔁')
-            .setStyle(player.loop !== 'none' ? ButtonStyle.Primary : ButtonStyle.Secondary)
-    );
-
-    // Row 2: Secondary Utilities (Queue, Lyrics, Favorites, Volume)
-    const row2 = new ActionRowBuilder().addComponents(
+            .setEmoji(player.loop === 'track' ? '🔂' : '🔁')
+            .setLabel('Loop')
+            .setStyle(player.loop !== 'none' ? ButtonStyle.Primary : ButtonStyle.Secondary),
         new ButtonBuilder()
             .setCustomId('music_queue')
             .setEmoji('📋')
             .setLabel('Queue')
-            .setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder()
-            .setCustomId('music_lyrics')
-            .setEmoji('📄')
-            .setLabel('Lyrics')
-            .setStyle(ButtonStyle.Secondary),
-        new ButtonBuilder()
-            .setCustomId('music_favorite')
-            .setEmoji('💖')
-            .setLabel('Favorites')
             .setStyle(ButtonStyle.Secondary),
         new ButtonBuilder()
             .setCustomId('music_volume')
