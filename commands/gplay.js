@@ -17,6 +17,12 @@ module.exports = {
                 description: 'เล่นเพลงนี้เป็นคิวต่อไป (แซงคิว)',
                 required: false,
             },
+            {
+                name: 'playlist',
+                type: 5, // BOOLEAN
+                description: 'โหลดทั้งเพลย์ลิสต์ถ้าลิ้งก์มี playlist/mix (ค่าเริ่มต้น: เล่นเฉพาะเพลงนี้)',
+                required: false,
+            },
         ],
     },
     run: async (client, interaction, kazagumo) => {
@@ -30,6 +36,7 @@ module.exports = {
 
         const query = interaction.options.getString('query');
         const top = interaction.options.getBoolean('top');
+        const forcePlaylist = Boolean(interaction.options.getBoolean('playlist'));
         await interaction.deferReply();
 
         let player = kazagumo.players.get(interaction.guild.id);
@@ -44,7 +51,8 @@ module.exports = {
 
         // Fast Single-Pass Search with built-in YouTube Anti-Ban and SoundCloud Fallback
         const result = await kazagumo.search(query, {
-            requester: interaction.user
+            requester: interaction.user,
+            forcePlaylist
         });
 
         if (!result.tracks.length) {

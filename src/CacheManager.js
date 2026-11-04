@@ -77,6 +77,7 @@ class CacheManager {
             '--retry-sleep', '1',
             '--socket-timeout', '6',
             '--buffer-size', '16K',
+            '--js-runtimes', 'node',
             '-f', '251/bestaudio/best'
         ];
 
@@ -92,10 +93,6 @@ class CacheManager {
             } else if (useIPv6) {
                 args.push('--force-ipv6');
             }
-        }
-
-        if (!isSoundCloud) {
-            args.push('--extractor-args', 'youtube:player_client=android,ios');
         }
 
         if (hasCookies && !isSoundCloud) {
@@ -189,17 +186,16 @@ class CacheManager {
             return this._trySoundCloudFallback(track, seekSeconds, volume, onSpawn);
         }
 
-        const streamMode = (process.env.STREAM_MODE || 'auto').toLowerCase().trim();
+        const streamMode = (process.env.STREAM_MODE || 'pipe').toLowerCase().trim();
         const durationSec = track.duration || (track.length ? Math.round(track.length / 1000) : 0);
-        const forcePipe = streamMode === 'pipe' || track.isStream || durationSec > 360 || seekSeconds > 0;
 
-        // 3. Direct Live Pipe mode or long tracks (>6 mins), live streams, seeking: stream directly via live pipe (<2s latency)
-        if (forcePipe) {
+        // 3. Ultra-Fast Live Pipe Streaming (Default, <2.5s start latency)
+        if (streamMode !== 'cache') {
             console.log(`[CacheManager:Stream] Live pipe stream for "${track.title}" (Mode: ${streamMode}, Duration: ${durationSec}s, Seek: ${seekSeconds}s)`);
             return this._spawnPipedStream(track, track.uri, seekSeconds, volume, false, onSpawn);
         }
 
-        // 4. Standard tracks (<=6 mins) in auto or cache mode: attempt fast disk cache for instant replay/loops
+        // 4. Dedicated Disk Cache Mode (Only when explicitly configured with STREAM_MODE=cache)
         try {
             await this.prepareTrack(track, false, onSpawn);
             if (this.isCached(identifier)) {
@@ -215,7 +211,7 @@ class CacheManager {
             return this._spawnPipedStream(track, track.uri, seekSeconds, volume, false, onSpawn);
         }
 
-        // 5. Fallback to direct streaming (e.g. for Live Streams)
+        // 5. Fallback to direct streaming
         return this._spawnPipedStream(track, track.uri, seekSeconds, volume, false, onSpawn);
     }
 

@@ -62,20 +62,25 @@ class QueueManager extends EventEmitter {
 
     /**
      * Executes yt-dlp metadata extraction with concurrency limiter.
-     * Uses 10s fast timeout and verified proxy only.
+     * Uses fast timeout, js runtime, and verified proxy/VPN.
      */
-    _fetchYtDlpJson(query) {
+    _fetchYtDlpJson(query, isPlaylist = false, limit = 25) {
         return new Promise((resolve) => {
             const execute = () => {
                 this._activeSearches++;
+                const itemLimit = Math.max(5, Math.min(limit || 25, 100));
                 const args = [
                     '-J',
-                    '--flat-playlist',
-                    '--playlist-items', '1:25',
                     '--no-warnings',
-                    '--no-playlist-reverse',
-                    '--socket-timeout', '6'
+                    '--socket-timeout', '6',
+                    '--js-runtimes', 'node'
                 ];
+
+                if (isPlaylist) {
+                    args.push('--flat-playlist', '--playlist-items', `1:${itemLimit}`, '--no-playlist-reverse');
+                } else {
+                    args.push('--no-playlist');
+                }
 
                 const isSoundCloud = query.includes('soundcloud.com') || query.startsWith('scsearch');
                 const cookiesPath = path.resolve(__dirname, '../cookies.txt');
@@ -92,10 +97,6 @@ class QueueManager extends EventEmitter {
                     }
                 }
 
-                if (!isSoundCloud) {
-                    args.push('--extractor-args', 'youtube:player_client=android,ios');
-                }
-
                 if (hasCookies && !isSoundCloud) {
                     args.push('--cookies', cookiesPath);
                 }
@@ -103,7 +104,8 @@ class QueueManager extends EventEmitter {
                 args.push(query);
 
                 const startTime = Date.now();
-                execFile(binPath, args, { maxBuffer: 4 * 1024 * 1024, timeout: 10000, killSignal: 'SIGKILL' }, (err, stdout, stderr) => {
+                const timeoutMs = isPlaylist ? 25000 : 10000;
+                execFile(binPath, args, { maxBuffer: 16 * 1024 * 1024, timeout: timeoutMs, killSignal: 'SIGKILL' }, (err, stdout, stderr) => {
                     this._activeSearches--;
                     this._processNextSearch();
 
@@ -184,13 +186,15 @@ class QueueManager extends EventEmitter {
     async search(query, options = {}) {
         const requester = options.requester;
         const cleanQuery = query ? query.trim() : '';
+        const forcePlaylist = Boolean(options.forcePlaylist);
+        const limit = Math.max(5, Math.min(options.limit || 25, 100));
 
         if (!cleanQuery) {
             return { type: 'SEARCH', tracks: [] };
         }
 
         const searchStartTime = Date.now();
-        console.log(`[Search:Start] Query: "${cleanQuery}" | Engine: ${options.engine || 'auto'}`);
+        console.log(`[Search:Start] Query: "${cleanQuery}" | Engine: ${options.engine || 'auto'} | ForcePlaylist: ${forcePlaylist}`);
 
         const isUrl = cleanQuery.startsWith('http://') || cleanQuery.startsWith('https://');
 
@@ -199,16 +203,20 @@ class QueueManager extends EventEmitter {
             let targetUrl = cleanQuery;
             const ytMatch = cleanQuery.match(/(?:v=|\/embed\/|\/17\/|\/v\/|https:\/\/youtu\.be\/|\/shorts\/)([a-zA-Z0-9_-]{11})/);
             const singleVideoUrl = ytMatch ? `https://www.youtube.com/watch?v=${ytMatch[1]}` : null;
-            const isPlaylist = cleanQuery.includes('list=') || cleanQuery.includes('/playlist');
+            const hasListParam = cleanQuery.includes('list=');
+            const isPurePlaylistUrl = cleanQuery.includes('/playlist') || (hasListParam && !singleVideoUrl);
+            const wantPlaylist = forcePlaylist || isPurePlaylistUrl;
 
-            if (!isPlaylist && singleVideoUrl) {
+            // When user pastes a watch?v=...&list=... link into /gplay without forcePlaylist:
+            // Fast-path to single video (<1s)!
+            if (!wantPlaylist && singleVideoUrl) {
                 targetUrl = singleVideoUrl;
             }
 
             const isYouTubeUrl = cleanQuery.includes('youtube.com') || cleanQuery.includes('youtu.be');
 
             // FAST-TRACK: If circuit is OPEN and it's a YouTube single video URL, directly use oEmbed (<0.5s)
-            if (isYouTubeUrl && !isPlaylist && youtubeCircuit.isOpen()) {
+            if (isYouTubeUrl && !wantPlaylist && youtubeCircuit.isOpen()) {
                 console.log('[QueueManager] YouTube circuit open. Instant oEmbed metadata bypass...');
                 const oembedData = await this._fetchYouTubeOEmbed(targetUrl);
                 if (oembedData) {
@@ -219,16 +227,16 @@ class QueueManager extends EventEmitter {
                 }
             }
 
-            let data = await this._fetchYtDlpJson(targetUrl);
+            let data = await this._fetchYtDlpJson(targetUrl, wantPlaylist, limit);
 
             // If playlist extraction failed or returned 0 items, graceful fallback to the single video ID
-            if ((!data || (data._type === 'playlist' && (!data.entries || data.entries.length === 0))) && singleVideoUrl) {
+            if (wantPlaylist && (!data || (data._type === 'playlist' && (!data.entries || data.entries.length === 0))) && singleVideoUrl) {
                 console.log(`[QueueManager] Playlist extraction missed/blocked. Graceful fallback to single video: ${singleVideoUrl}`);
-                data = await this._fetchYouTubeOEmbed(singleVideoUrl) || await this._fetchYtDlpJson(singleVideoUrl);
+                data = await this._fetchYouTubeOEmbed(singleVideoUrl) || await this._fetchYtDlpJson(singleVideoUrl, false);
             }
 
             // Fallback to oEmbed if yt-dlp metadata failed on YouTube URL
-            if (!data && isYouTubeUrl) {
+            if (!data && isYouTubeUrl && !wantPlaylist) {
                 console.log('[QueueManager] yt-dlp blocked on URL. Using YouTube oEmbed anti-ban bypass...');
                 data = await this._fetchYouTubeOEmbed(singleVideoUrl || targetUrl);
             }
@@ -237,7 +245,7 @@ class QueueManager extends EventEmitter {
                 if (data._type === 'playlist' && data.entries && data.entries.length > 0) {
                     const validEntries = data.entries.filter(e => e && (e.id || e.url) && e.title && !e.title.includes('[Private video]') && !e.title.includes('[Deleted video]'));
                     if (validEntries.length > 0) {
-                        const tracks = validEntries.slice(0, 25).map(e => new Track(e, requester));
+                        const tracks = validEntries.slice(0, limit).map(e => new Track(e, requester));
                         return {
                             type: 'PLAYLIST',
                             playlistName: data.title || 'Playlist',
@@ -255,6 +263,18 @@ class QueueManager extends EventEmitter {
         }
 
         // --- Case 2: Keyword Search ---
+        if (forcePlaylist) {
+            console.log(`[QueueManager] Keyword playlist search for: "${cleanQuery}"`);
+            let plData = await this._fetchYtDlpJson(`ytsearch1:${cleanQuery} playlist`, true, limit);
+            if (plData && plData.entries && plData.entries.length > 0) {
+                const tracks = plData.entries.map(e => new Track(e, requester));
+                return {
+                    type: 'PLAYLIST',
+                    playlistName: plData.title || `Playlist: ${cleanQuery}`,
+                    tracks
+                };
+            }
+        }
         const sanitized = cleanQuery
             .replace(/\[.*?\]|\(.*?\)|【.*?】|MV|Official|Music Video|Audio|Lyrics/gi, '')
             .replace(/[|/\\#~!?@$%^&*_+<>{}=]/g, ' ')
