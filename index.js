@@ -226,21 +226,25 @@ client.on('interactionCreate', async interaction => {
             case 'music_lyrics': {
                 await interaction.deferReply({ flags: MessageFlags.Ephemeral });
                 const track = player.queue.current;
-                const lyricsFinder = require('lyrics-finder');
-                const cleanTitle = (track.title || '').replace(/ *\([^)]*\) */g, '').replace(/ *\[[^\]]*]/g, '');
-                const author = track.author && track.author !== 'Unknown' ? track.author : '';
-                let lyrics = await lyricsFinder(author, cleanTitle) || await lyricsFinder(cleanTitle, '');
-                if (!lyrics) {
+                const lyricsHelper = require('./src/helpers/lyricsHelper');
+                const data = await lyricsHelper.getLyrics(track);
+
+                if (!data || !data.lyrics) {
                     return interaction.followUp({
-                        content: `❌ หาเนื้อเพลงสำหรับ **${cleanTitle}** ไม่เจอเลยค่ะ 🥺`,
+                        content: `❌ หาเนื้อเพลงสำหรับ **${track.title}** ไม่เจอเลยค่ะ 🥺`,
                         flags: MessageFlags.Ephemeral
                     });
                 }
-                if (lyrics.length > 4000) lyrics = lyrics.slice(0, 3995) + '...';
+
+                let text = data.lyrics;
+                if (text.length > 4000) text = text.slice(0, 3995) + '...';
+
                 const embed = new EmbedBuilder()
                     .setColor('#FF69B4')
-                    .setTitle(`🎤 เนื้อเพลง: ${cleanTitle}`)
-                    .setDescription(lyrics);
+                    .setTitle(`🎤 เนื้อเพลง: ${data.title || track.title}`)
+                    .setDescription(text)
+                    .setFooter({ text: `แหล่งที่มา: ${data.source} 💋` });
+
                 return interaction.followUp({ embeds: [embed], flags: MessageFlags.Ephemeral });
             }
             case 'music_favorite': {

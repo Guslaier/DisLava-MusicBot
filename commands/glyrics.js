@@ -1,5 +1,5 @@
 const { EmbedBuilder } = require('discord.js');
-const lyricsFinder = require('lyrics-finder');
+const lyricsHelper = require('../src/helpers/lyricsHelper');
 
 module.exports = {
     data: {
@@ -10,7 +10,7 @@ module.exports = {
         const player = kazagumo.players.get(interaction.guild.id);
         const embed = new EmbedBuilder().setColor('#FF69B4');
 
-        if (!player || !player.playing) {
+        if (!player || !player.playing || !player.queue.current) {
             embed.setDescription('❌ ไม่มีเพลงที่กำลังเล่นอยู่ค่ะ! ร้องเพลงอะไรกันเอ่ย? 🥺');
             return interaction.reply({ embeds: [embed], flags: 64 });
         }
@@ -19,31 +19,26 @@ module.exports = {
         await interaction.deferReply();
 
         try {
-            // ค้นหาเนื้อเพลง โดยใช้ชื่อเพลงและผู้แต่ง (ถ้ามี)
-            // เอาคำว่า (Official Video) หรืออะไรพวกนี้ออกเพื่อให้หาเจอง่ายขึ้น
-            const cleanTitle = track.title.replace(/ *\([^)]*\) */g, "").replace(/ *\[[^\]]*]/g, "");
-            const author = track.author !== 'Unknown' ? track.author : '';
+            const data = await lyricsHelper.getLyrics(track);
 
-            let lyrics = await lyricsFinder(author, cleanTitle) || await lyricsFinder(cleanTitle, "");
-
-            if (!lyrics) {
+            if (!data || !data.lyrics) {
                 embed.setDescription(`❌ ว้าย! ขออภัยค่ะ หาเนื้อเพลงสำหรับ **${track.title}** ไม่เจอเลย 😿`);
                 return interaction.followUp({ embeds: [embed] });
             }
 
-            // ถ้าเนื้อเพลงยาวเกิน 4096 ตัวอักษร (ลิมิตของ Embed) ให้ตัด
-            if (lyrics.length > 4096) {
-                lyrics = lyrics.substring(0, 4090) + '...';
+            let lyrics = data.lyrics;
+            if (lyrics.length > 4000) {
+                lyrics = lyrics.substring(0, 3995) + '...';
             }
 
-            embed.setTitle(`🎤 เนื้อเพลง: ${cleanTitle}`)
+            embed.setTitle(`🎤 เนื้อเพลง: ${data.title || track.title}`)
                  .setDescription(lyrics)
-                 .setFooter({ text: 'ร้องตามดีเจดังๆ เลยนะคะ! 💋' });
+                 .setFooter({ text: `แหล่งที่มา: ${data.source} • ร้องตามดีเจดังๆ เลยนะคะ! 💋` });
 
             return interaction.followUp({ embeds: [embed] });
 
         } catch (error) {
-            console.error(error);
+            console.error('[LyricsCommand] Error:', error.message);
             embed.setDescription('❌ แง้! เกิดข้อผิดพลาดตอนไปคุ้ยหาเนื้อเพลงมาให้ค่ะ ขออภัยด้วยน้า 🥺');
             return interaction.followUp({ embeds: [embed] });
         }
