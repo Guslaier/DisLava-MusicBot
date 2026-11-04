@@ -81,8 +81,12 @@ class QueueManager extends EventEmitter {
                     '--js-runtimes', 'node'
                 ];
 
-                if (isPlaylist) {
-                    args.push('--flat-playlist', '--playlist-items', `1:${itemLimit}`, '--no-playlist-reverse');
+                const isSearch = query.startsWith('ytsearch') || query.startsWith('scsearch');
+                if (isPlaylist || isSearch) {
+                    args.push('--flat-playlist');
+                    if (isPlaylist) {
+                        args.push('--playlist-items', `1:${itemLimit}`, '--no-playlist-reverse');
+                    }
                 } else {
                     args.push('--no-playlist');
                 }

@@ -84,6 +84,8 @@ class Player {
         this.loop = 'none'; // 'none' | 'track' | 'queue'
         this.autoplay = typeof options.autoplay === 'boolean' ? options.autoplay : settingsManager.getGuildAutoplay(this.guildId);
         this.playedHistory = new Set();
+        this._preloadedAutoplayTrack = null;
+        this._autoplayPreloadTimer = null;
         this.paused = false;
         this.playing = false;
         this.nowPlayingMessage = null;
@@ -198,9 +200,18 @@ class Player {
             if (this.queue.length > 0) {
                 const nextTrack = this.queue.shift();
                 await this.playTrack(nextTrack);
-            } else if (this.autoplay && referenceTrack) {
-                const played = await this._handleAutoplay(referenceTrack);
-                if (!played) {
+            } else if (this.autoplay && (this._preloadedAutoplayTrack || referenceTrack)) {
+                let nextTrack = this._preloadedAutoplayTrack;
+                this._preloadedAutoplayTrack = null;
+
+                if (!nextTrack && referenceTrack) {
+                    nextTrack = await this._findNextAutoplayTrack(referenceTrack);
+                }
+
+                if (nextTrack) {
+                    console.log(`[Player] Autoplay playing next: "${nextTrack.title}" (${nextTrack.uri})`);
+                    await this.playTrack(nextTrack);
+                } else {
                     this.queue.current = null;
                     this.manager.emit('playerEmpty', this);
                 }
@@ -310,6 +321,7 @@ class Player {
             console.log(`[Player] Audio resource dispatched to voice channel in ${Date.now() - streamPrepStart}ms: "${track.title}"`);
             this.manager.emit('playerStart', this, track);
             this._preCacheNextTrack();
+            this._scheduleAutoplayPreload(track);
         } catch (error) {
             if (token !== this._playToken) return;
             console.error(`Failed to play track ${track.title}:`, error.message);
@@ -356,6 +368,11 @@ class Player {
             clearTimeout(this._preCacheTimer);
             this._preCacheTimer = null;
         }
+        if (this._autoplayPreloadTimer) {
+            clearTimeout(this._autoplayPreloadTimer);
+            this._autoplayPreloadTimer = null;
+        }
+        this._preloadedAutoplayTrack = null;
         this._isSkipping = false;
         this._playToken++;
         if (this.currentProcess) {
@@ -396,16 +413,49 @@ class Player {
         return true;
     }
 
-    async _handleAutoplay(lastTrack) {
+    _scheduleAutoplayPreload(currentTrack) {
+        if (this._autoplayPreloadTimer) {
+            clearTimeout(this._autoplayPreloadTimer);
+            this._autoplayPreloadTimer = null;
+        }
+
+        if (!this.autoplay || this.queue.length > 0) return;
+
+        // Pre-fetch next autoplay song in background 3 seconds after playback starts
+        this._autoplayPreloadTimer = setTimeout(async () => {
+            if (!this.autoplay || this.queue.length > 0 || this._preloadedAutoplayTrack) return;
+            try {
+                console.log(`[Player:Autoplay] Pre-fetching next song in background for: "${currentTrack.title}"`);
+                const track = await this._findNextAutoplayTrack(currentTrack);
+                if (track && this.autoplay && this.queue.length === 0) {
+                    this._preloadedAutoplayTrack = track;
+                    console.log(`[Player:Autoplay] Pre-cached candidate ready: "${track.title}" (${track.uri})`);
+                    const streamMode = (process.env.STREAM_MODE || 'auto').toLowerCase().trim();
+                    if (streamMode !== 'pipe') {
+                        const identifier = track.identifier || Buffer.from(track.uri || '').toString('hex').slice(0, 20);
+                        if (!CacheManager.isCached(identifier)) {
+                            CacheManager.prepareTrack(track, true).catch(() => {});
+                        }
+                    }
+                }
+            } catch (err) {
+                console.warn('[Player:Autoplay] Preload failed:', err.message);
+            }
+        }, 3000);
+    }
+
+    async _findNextAutoplayTrack(lastTrack) {
         try {
+            const cleanTitle = (lastTrack.title || '')
+                .replace(/\[.*?\]|\(.*?\)|【.*?】|MV|Official|Music Video|Audio|Lyrics/gi, '')
+                .replace(/[|/\\#~!?@$%^&*_+<>{}=]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
             const cleanAuthor = (lastTrack.author || '')
                 .replace(/- topic|official|channel|vevo/gi, '')
                 .trim();
-            const cleanTitle = (lastTrack.title || '')
-                .replace(/\[.*?\]|\(.*?\)|【.*?】|MV|Official|Music Video|Audio|Lyrics/gi, '')
-                .trim();
 
-            const query = cleanAuthor ? `${cleanAuthor} song` : `${cleanTitle} music`;
+            const query = cleanTitle ? `${cleanTitle} related` : `${cleanAuthor} song`;
             console.log(`[Player] Autoplay searching: "${query}" (Based on: "${lastTrack.title}")`);
 
             let result = await this.manager.search(query, {
@@ -413,7 +463,7 @@ class Player {
             });
 
             if (!result || !result.tracks || result.tracks.length === 0) {
-                const fallbackQuery = `${cleanTitle} related`;
+                const fallbackQuery = cleanAuthor ? `${cleanAuthor} song` : `${cleanTitle} music`;
                 console.log(`[Player] Autoplay fallback searching: "${fallbackQuery}"`);
                 result = await this.manager.search(fallbackQuery, {
                     requester: lastTrack.requester || this.manager.client?.user
@@ -428,16 +478,12 @@ class Player {
                     t.identifier !== lastTrack.identifier
                 ) || result.tracks.find(t => t.uri !== lastTrack.uri && t.identifier !== lastTrack.identifier) || result.tracks[0];
 
-                if (nextTrack) {
-                    console.log(`[Player] Autoplay queued: "${nextTrack.title}" (${nextTrack.uri})`);
-                    await this.playTrack(nextTrack);
-                    return true;
-                }
+                return nextTrack || null;
             }
         } catch (err) {
-            console.warn('[Player] Autoplay failed:', err.message);
+            console.warn('[Player] Autoplay search failed:', err.message);
         }
-        return false;
+        return null;
     }
 
     async seek(positionMs) {
