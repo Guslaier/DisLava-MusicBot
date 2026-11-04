@@ -250,6 +250,15 @@ client.on('interactionCreate', async interaction => {
                     return interaction.deferUpdate();
                 }
             }
+            case 'music_autoplay': {
+                player.autoplay = !player.autoplay;
+                try {
+                    const cardData = createNowPlayingCard(player, player.queue.current);
+                    return await interaction.update(cardData);
+                } catch {
+                    return interaction.deferUpdate();
+                }
+            }
             case 'music_queue': {
                 const queue = player.queue;
                 const embed = new EmbedBuilder().setColor('#FF69B4');

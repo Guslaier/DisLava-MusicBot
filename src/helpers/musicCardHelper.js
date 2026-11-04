@@ -118,7 +118,7 @@ function createNowPlayingCard(player, track) {
             .setStyle(ButtonStyle.Secondary)
     );
 
-    // Row 2: Secondary Utilities (Shuffle, Loop, Queue, Volume, Close App)
+    // Row 2: Library & Features (Shuffle, Loop, Queue, Lyrics, Favorites)
     const row2 = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
             .setCustomId('music_shuffle')
@@ -136,10 +136,29 @@ function createNowPlayingCard(player, track) {
             .setLabel('Queue')
             .setStyle(ButtonStyle.Secondary),
         new ButtonBuilder()
+            .setCustomId('music_lyrics')
+            .setEmoji('📄')
+            .setLabel('Lyrics')
+            .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId('music_favorite')
+            .setEmoji('💖')
+            .setLabel('Favorites')
+            .setStyle(ButtonStyle.Secondary)
+    );
+
+    // Row 3: Quick Controls (Volume, Autoplay, Close App)
+    const row3 = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
             .setCustomId('music_volume')
             .setEmoji('🔊')
             .setLabel('Volume')
             .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId('music_autoplay')
+            .setEmoji('📻')
+            .setLabel(player.autoplay ? 'Autoplay On' : 'Autoplay Off')
+            .setStyle(player.autoplay ? ButtonStyle.Success : ButtonStyle.Secondary),
         new ButtonBuilder()
             .setCustomId('music_stop')
             .setEmoji('🛑')
@@ -149,7 +168,7 @@ function createNowPlayingCard(player, track) {
 
     return {
         embeds: [embed],
-        components: [row1, row2]
+        components: [row1, row2, row3]
     };
 }
 
