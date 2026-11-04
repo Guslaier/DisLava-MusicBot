@@ -84,6 +84,7 @@ class Player {
         this.loop = 'none'; // 'none' | 'track' | 'queue'
         this.autoplay = typeof options.autoplay === 'boolean' ? options.autoplay : settingsManager.getGuildAutoplay(this.guildId);
         this.playedHistory = new Set();
+        this.recentArtists = [];
         this._preloadedAutoplayTrack = null;
         this._autoplayPreloadTimer = null;
         this.paused = false;
@@ -281,6 +282,13 @@ class Player {
                     const first = this.playedHistory.values().next().value;
                     this.playedHistory.delete(first);
                 }
+                const artistName = this._extractArtistName(track);
+                if (artistName) {
+                    this.recentArtists.push(artistName);
+                    if (this.recentArtists.length > 5) {
+                        this.recentArtists.shift();
+                    }
+                }
             }
 
             if (this.connection && this.connection.state.status !== VoiceConnectionStatus.Ready) {
@@ -444,6 +452,25 @@ class Player {
         }, 3000);
     }
 
+    _extractArtistName(track) {
+        if (!track) return '';
+        const title = (track.title || '').replace(/\[.*?\]|\(.*?\)|【.*?】|「.*?」|MV|Official.*$/gi, '').trim();
+        const parts = title.split(/[-–—|]/).map(p => p.trim()).filter(Boolean);
+        if (parts.length > 1) {
+            if (parts[0].length <= 35 && !/^(เพลง|official|audio|mv|live|lyric)/i.test(parts[0])) {
+                return parts[0].toLowerCase();
+            }
+            if (parts[1].length <= 35) {
+                return parts[1].toLowerCase();
+            }
+        }
+        if (track.author) {
+            const clean = track.author.replace(/[-_]topic|official|channel|vevo|records?|music/gi, '').trim();
+            if (clean.length >= 2) return clean.toLowerCase();
+        }
+        return '';
+    }
+
     async _findNextAutoplayTrack(lastTrack) {
         try {
             const ytMatch = (lastTrack.uri || '').match(/(?:v=|\/embed\/|\/17\/|\/v\/|https:\/\/youtu\.be\/|\/shorts\/)([a-zA-Z0-9_-]{11})/);
@@ -498,14 +525,46 @@ class Player {
                 return true;
             };
 
-            const nextTrack = candidates.find(isFresh);
-            if (nextTrack) {
-                return nextTrack;
+            const freshCandidates = candidates.filter(isFresh);
+            if (freshCandidates.length === 0) return null;
+
+            // Prioritize different artist to preserve musical tone while preventing same artist repetition
+            const lastArtist = this._extractArtistName(lastTrack);
+            const isDiverseArtist = (t) => {
+                const tArtist = this._extractArtistName(t);
+                const titleLower = (t.title || '').toLowerCase();
+                const authorLower = (t.author || '').toLowerCase();
+
+                // 1. Must not match current/last track artist
+                if (lastArtist && (titleLower.includes(lastArtist) || authorLower.includes(lastArtist))) {
+                    return false;
+                }
+                if (tArtist && lastArtist && (tArtist.includes(lastArtist) || lastArtist.includes(tArtist))) {
+                    return false;
+                }
+
+                // 2. Must not be in recent 3 artists
+                for (const recent of this.recentArtists.slice(-3)) {
+                    if (recent && (titleLower.includes(recent) || authorLower.includes(recent))) {
+                        return false;
+                    }
+                }
+                return true;
+            };
+
+            const diverseCandidates = freshCandidates.filter(isDiverseArtist);
+
+            // Pick randomly from top 3 diverse candidates for natural radio flow
+            if (diverseCandidates.length > 0) {
+                const pool = diverseCandidates.slice(0, 3);
+                const selected = pool[Math.floor(Math.random() * pool.length)];
+                console.log(`[Player:Autoplay] Selected diverse artist track: "${selected.title}" (Genre matched, artist diversified)`);
+                return selected;
             }
 
-            // If all candidates were in recent history, pick candidate that is at least not identical to current track
-            const fallbackFresh = candidates.find(t => t.identifier !== lastTrack.identifier && t.uri !== lastTrack.uri);
-            return fallbackFresh || null;
+            // Fallback: Pick top fresh candidate if diversity pool is empty
+            console.log(`[Player:Autoplay] Falling back to fresh candidate: "${freshCandidates[0].title}"`);
+            return freshCandidates[0];
         } catch (err) {
             console.warn('[Player] Autoplay search failed:', err.message);
         }
