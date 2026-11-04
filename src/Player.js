@@ -10,6 +10,7 @@ const {
 } = require('@discordjs/voice');
 const prism = require('prism-media');
 const CacheManager = require('./CacheManager');
+const settingsManager = require('./helpers/settingsManager');
 
 class PlayerQueue extends Array {
     static get [Symbol.species]() {
@@ -79,7 +80,7 @@ class Player {
         this.guildId = options.guildId;
         this.voiceId = options.voiceId;
         this.textId = options.textId;
-        this.volume = typeof options.volume === 'number' ? options.volume : 100;
+        this.volume = typeof options.volume === 'number' ? options.volume : settingsManager.getGuildVolume(this.guildId);
         this.loop = 'none'; // 'none' | 'track' | 'queue'
         this.autoplay = false;
         this.paused = false;
@@ -357,6 +358,7 @@ class Player {
 
     setVolume(volume) {
         this.volume = volume;
+        settingsManager.setGuildVolume(this.guildId, volume);
         if (this.playing && this.queue.current) {
             this.seek(this.position);
         }

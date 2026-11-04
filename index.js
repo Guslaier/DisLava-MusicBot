@@ -379,7 +379,7 @@ client.on('interactionCreate', async interaction => {
                     } catch {}
                 }
                 return interaction.update({
-                    content: `🔊 ปรับระดับเสียงเป็น **${volNum}%** เรียบร้อยค่ะ!`,
+                    content: `🔊 ปรับและบันทึกระดับเสียงเป็น **${volNum}%** เรียบร้อยค่ะ! (ระบบจำค่านี้ไว้ใช้ตลอด)`,
                     components: []
                 });
             }

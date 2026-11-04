@@ -5,6 +5,7 @@ const path = require('path');
 const Player = require('./Player');
 const proxyManager = require('./helpers/proxyManager');
 const youtubeCircuit = require('./helpers/youtubeCircuit');
+const settingsManager = require('./helpers/settingsManager');
 
 const binPath = path.resolve(__dirname, process.platform === 'win32' ? '../bin/yt-dlp.exe' : '../bin/yt-dlp');
 const cacheDir = path.resolve(__dirname, '../music_cache');
@@ -51,7 +52,11 @@ class QueueManager extends EventEmitter {
             return player;
         }
 
-        player = new Player(this, options);
+        const initialVolume = (typeof options.volume === 'number' && options.volume !== 100)
+            ? options.volume
+            : settingsManager.getGuildVolume(options.guildId);
+
+        player = new Player(this, { ...options, volume: initialVolume });
         this.players.set(options.guildId, player);
         return player;
     }

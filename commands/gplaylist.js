@@ -1,4 +1,5 @@
 const { EmbedBuilder } = require('discord.js');
+const settingsManager = require('../src/helpers/settingsManager');
 
 module.exports = {
     data: {
@@ -40,7 +41,7 @@ module.exports = {
                 guildId: interaction.guild.id,
                 textId: interaction.channel.id,
                 voiceId: voiceChannel.id,
-                volume: 100
+                volume: settingsManager.getGuildVolume(interaction.guild.id)
             });
         }
 

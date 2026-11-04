@@ -1,5 +1,6 @@
 const { EmbedBuilder, SlashCommandBuilder } = require('discord.js');
 const favoriteManager = require('../src/helpers/favoriteManager');
+const settingsManager = require('../src/helpers/settingsManager');
 
 module.exports = {
     data: new SlashCommandBuilder()
@@ -110,7 +111,7 @@ module.exports = {
                     guildId: interaction.guild.id,
                     textId: interaction.channel.id,
                     voiceId: voiceChannel.id,
-                    volume: 100
+                    volume: settingsManager.getGuildVolume(interaction.guild.id)
                 });
             }
 
