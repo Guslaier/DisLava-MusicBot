@@ -21,6 +21,15 @@ module.exports = {
         .addSubcommand(sub =>
             sub.setName('clear')
                 .setDescription('ล้าง Blacklist ทั้งหมด')
+        )
+        .addSubcommand(sub =>
+            sub.setName('switch')
+                .setDescription('สลับไปใช้เซิร์ฟเวอร์ VPN SG ตัวถัดไปใน Pool (Auto-Failover / Manual Switch)')
+                .addStringOption(opt =>
+                    opt.setName('server')
+                        .setDescription('ชื่อเซิร์ฟเวอร์ที่ต้องการ (เช่น sg-free-15 หรือปล่อยว่างเพื่อไปตัวถัดไป)')
+                        .setRequired(false)
+                )
         ),
 
     run: async (client, interaction) => {
@@ -91,6 +100,28 @@ module.exports = {
             embed.setTitle('🧹 ล้าง Blacklist เรียบร้อยแล้ว');
             embed.setDescription(`ปลดแบน Proxy ทั้งหมดจำนวน **${clearedCount}** ตัวออกจาก Blacklist แล้วค่ะ!`);
             return interaction.reply({ embeds: [embed] });
+        }
+
+        if (subcommand === 'switch') {
+            await interaction.deferReply();
+            if (!proxyManager.vpnEnabled) {
+                embed.setDescription('❌ ระบบ VPN ถูกปิดใช้งานอยู่ค่ะ (ENABLE_VPN=false)');
+                return interaction.followUp({ embeds: [embed] });
+            }
+
+            const targetServer = interaction.options.getString('server') || 'next';
+            const res = await proxyManager.switchVpnServer(targetServer);
+
+            if (res.ok) {
+                embed.setColor('#00FF00');
+                embed.setTitle('🔄 สลับเซิร์ฟเวอร์ VPN สำเร็จแล้วค่ะ!');
+                embed.setDescription(`บอทเชื่อมต่อไปยังเซิร์ฟเวอร์ใหม่เรียบร้อยแล้วค่ะ\n\n🇸🇬 **เซิร์ฟเวอร์:** \`${res.server}\`\n📍 **Interface IP:** \`${res.ip || 'Detecting...'}\``);
+            } else {
+                embed.setColor('#FF0000');
+                embed.setTitle('❌ ไม่สามารถสลับเซิร์ฟเวอร์ VPN ได้');
+                embed.setDescription(`เกิดข้อผิดพลาด: \`${res.reason}\``);
+            }
+            return interaction.followUp({ embeds: [embed] });
         }
     }
 };

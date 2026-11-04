@@ -288,6 +288,8 @@ class CacheManager {
                 const activeProxy = proxyManager.getYouTubeProxy();
                 if (activeProxy && !isFallback) {
                     proxyManager.reportFailure(activeProxy, reason);
+                } else if (proxyManager.isVpnActive() && !isFallback) {
+                    proxyManager.reportVpnFailure(reason);
                 }
 
                 if (isBotBan) {

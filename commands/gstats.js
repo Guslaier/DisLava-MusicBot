@@ -28,7 +28,7 @@ module.exports = {
         const circuitStatus = youtubeCircuit.getStatus();
         let proxyBadge = '⚪ Direct (Bypass Mode)';
         if (proxyStatus.isVpn) {
-            proxyBadge = `🟢 ProtonVPN (${proxyStatus.vpnIp})`;
+            proxyBadge = `🟢 ProtonVPN ${proxyStatus.serverName ? `(${proxyStatus.serverName})` : ''} [${proxyStatus.vpnIp}]`;
         } else if (proxyStatus.configured) {
             proxyBadge = proxyStatus.isOnline 
                 ? `🟢 Smart Pool (${proxyStatus.activeCount} Live | 🚫 ${proxyStatus.blacklistCount || 0} Blocked | ${proxyStatus.bestLatency})` 

@@ -117,6 +117,8 @@ class QueueManager extends EventEmitter {
                     if (err || !stdout) {
                         if (activeProxy) {
                             proxyManager.reportFailure(activeProxy, outputErr || err?.message);
+                        } else if (proxyManager.isVpnActive()) {
+                            proxyManager.reportVpnFailure(outputErr || err?.message);
                         }
                         return resolve(null);
                     }
