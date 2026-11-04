@@ -42,3 +42,7 @@ bin/ffmpeg-bundle
 
 bin/*.exe
 data/
+
+# VPN configs and certificates
+vpn-configs/
+*.ovpn
