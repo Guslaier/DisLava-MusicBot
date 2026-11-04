@@ -316,6 +316,10 @@ class Player {
     }
 
     stop() {
+        if (this._preCacheTimer) {
+            clearTimeout(this._preCacheTimer);
+            this._preCacheTimer = null;
+        }
         this._isSkipping = false;
         this._playToken++;
         if (this.currentProcess) {
@@ -408,18 +412,25 @@ class Player {
         const streamMode = (process.env.STREAM_MODE || 'auto').toLowerCase().trim();
         if (streamMode === 'pipe') return;
 
-        // Pre-cache only if RAM usage is healthy (<150MB) and loop mode is track
-        const mem = process.memoryUsage();
-        if (mem.rss > 150 * 1024 * 1024) return;
-
-        if (this.queue.length > 0 && this.playing) {
-            const nextTrack = this.queue[0];
-            // Only prepare file if not already cached
-            const identifier = nextTrack.identifier || Buffer.from(nextTrack.uri || '').toString('hex').slice(0, 20);
-            if (!CacheManager.isCached(identifier)) {
-                CacheManager.prepareTrack(nextTrack, true).catch(() => {});
-            }
+        if (this._preCacheTimer) {
+            clearTimeout(this._preCacheTimer);
+            this._preCacheTimer = null;
         }
+
+        // Delay pre-caching by 8s so current track playback stabilizes first
+        this._preCacheTimer = setTimeout(() => {
+            // Pre-cache only if RAM usage is healthy (<150MB) and player is still active
+            const mem = process.memoryUsage();
+            if (mem.rss > 150 * 1024 * 1024) return;
+
+            if (this.queue.length > 0 && this.playing) {
+                const nextTrack = this.queue[0];
+                const identifier = nextTrack.identifier || Buffer.from(nextTrack.uri || '').toString('hex').slice(0, 20);
+                if (!CacheManager.isCached(identifier)) {
+                    CacheManager.prepareTrack(nextTrack, true).catch(() => {});
+                }
+            }
+        }, 8000);
     }
 
     destroy() {

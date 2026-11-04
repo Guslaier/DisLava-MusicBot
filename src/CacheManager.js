@@ -150,6 +150,18 @@ class CacheManager {
     }
 
     _streamFromDisk(targetPath, seekSeconds = 0, volume = 100, onSpawn = null) {
+        // Fast path: Zero-copy direct disk stream (No child process, zero CPU overhead)
+        if (seekSeconds <= 0 && (typeof volume !== 'number' || volume === 100)) {
+            const fileStream = fs.createReadStream(targetPath, { highWaterMark: 1024 * 512 });
+            fileStream.kill = () => {
+                try { fileStream.destroy(); } catch {}
+            };
+            if (typeof onSpawn === 'function') {
+                onSpawn(fileStream);
+            }
+            return fileStream;
+        }
+
         const ffmpegArgs = ['-nostdin', '-loglevel', 'error'];
         if (seekSeconds > 0) {
             ffmpegArgs.push('-ss', seekSeconds.toString());
@@ -481,8 +493,10 @@ class CacheManager {
                 const fallback = this._getSoundCloudFallback(track);
                 if (fallback) {
                     const fbArgs = this._buildYtDlpArgs(fallback, false, outTemplate);
+                    const fbBin = (isBackground && process.platform === 'linux') ? '/usr/bin/nice' : this.binPath;
+                    const fbFinalArgs = (isBackground && process.platform === 'linux') ? ['-n', '19', this.binPath, ...fbArgs] : fbArgs;
                     await new Promise((resolve, reject) => {
-                        const fbChild = execFile(this.binPath, fbArgs, { maxBuffer: 8 * 1024 * 1024, timeout: 35000 }, (fbErr) => {
+                        const fbChild = execFile(fbBin, fbFinalArgs, { maxBuffer: 8 * 1024 * 1024, timeout: 35000 }, (fbErr) => {
                             if (fbErr) return reject(fbErr);
                             resolve();
                         });
@@ -506,9 +520,12 @@ class CacheManager {
                 ? parseInt(process.env.DOWNLOAD_TIMEOUT_BG_MS || '50000', 10) 
                 : parseInt(process.env.DOWNLOAD_TIMEOUT_MS || '35000', 10);
 
+            const execBin = (isBackground && process.platform === 'linux') ? '/usr/bin/nice' : this.binPath;
+            const execArgs = (isBackground && process.platform === 'linux') ? ['-n', '19', this.binPath, ...args] : args;
+
             try {
                 await new Promise((resolve, reject) => {
-                    const child = execFile(this.binPath, args, { maxBuffer: 8 * 1024 * 1024, timeout: downloadTimeout }, (err, stdout, stderr) => {
+                    const child = execFile(execBin, execArgs, { maxBuffer: 8 * 1024 * 1024, timeout: downloadTimeout }, (err, stdout, stderr) => {
                         if (err) {
                             const errMsg = (stderr || '') + (err.message || '');
                             return reject(new Error(errMsg));
@@ -538,8 +555,10 @@ class CacheManager {
                 const fallback = this._getSoundCloudFallback(track);
                 if (fallback && !track.uri.includes('soundcloud.com')) {
                     const fbArgs = this._buildYtDlpArgs(fallback, false, outTemplate);
+                    const fbBin = (isBackground && process.platform === 'linux') ? '/usr/bin/nice' : this.binPath;
+                    const fbFinalArgs = (isBackground && process.platform === 'linux') ? ['-n', '19', this.binPath, ...fbArgs] : fbArgs;
                     await new Promise((resolve, reject) => {
-                        const fbChild = execFile(this.binPath, fbArgs, { maxBuffer: 8 * 1024 * 1024, timeout: 35000 }, (fbErr) => {
+                        const fbChild = execFile(fbBin, fbFinalArgs, { maxBuffer: 8 * 1024 * 1024, timeout: 35000 }, (fbErr) => {
                             if (fbErr) return reject(fbErr);
                             resolve();
                         });
