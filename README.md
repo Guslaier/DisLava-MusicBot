@@ -1,39 +1,39 @@
 <div align="center">
-  <h1>DisLava-MusicBot</h1>
-  <p><strong>High-Performance Standalone Discord Music Bot</strong></p>
+  <h1>GOOLIX MusicBot</h1>
+  <p><strong>Ultra-Light High-Performance Standalone Discord Music Bot</strong></p>
   
   [![Discord.js](https://img.shields.io/badge/Discord.js-v14-blue?logo=discord&logoColor=white)](https://discord.js.org/)
-  [![Node.js](https://img.shields.io/badge/Node.js-16.11.0+-green?logo=node.js&logoColor=white)](https://nodejs.org/)
-  [![yt-dlp](https://img.shields.io/badge/Audio%20Engine-yt--dlp%20%2B%20FFmpeg-red)](https://github.com/yt-dlp/yt-dlp)
+  [![Node.js](https://img.shields.io/badge/Node.js-18.x+-green?logo=node.js&logoColor=white)](https://nodejs.org/)
+  [![Audio Engine](https://img.shields.io/badge/Audio%20Engine-yt--dlp%20%2B%20FFmpeg%20%2B%20Opus-red)](https://github.com/yt-dlp/yt-dlp)
   [![License](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 </div>
 
 <br />
 
-**DisLava-MusicBot** is an Open Source Discord Music Bot powered directly by **Discord.js v14**, **@discordjs/voice**, embedded **yt-dlp**, and **FFmpeg**. It runs as a self-contained, standalone Node.js service without needing Java, Lavalink, or external server daemons.
+**GOOLIX** is a modern, high-performance Discord Music Bot powered directly by **Discord.js v14**, **@discordjs/voice**, embedded **yt-dlp**, and **FFmpeg**. It runs as an ultra-light, self-contained standalone Node.js service without needing Java, Lavalink, or external server daemons.
 
-It features local audio caching, direct Opus stream encoding, smart search, playlist support, an advanced queue management system, and stylish Hot Pink embed interfaces.
+It features local NVMe caching, direct Opus stream encoding, YouTube Radio Mix Autoplay with artist diversity, an interactive 3-row player card, LRCLIB + YouTube description lyrics search, favorites management, and automatic dead card self-cleaning.
 
-> **Note for general users:** This project is Open Source and designed to be self-hosted on your own servers.
+> **Note for general users:** This project is Open Source and designed to be self-hosted on your own servers or Cloud VPS.
 
 ---
 
 ## Key Features
 
 - **Standalone Architecture**: 100% pure Node.js runtime. No Java runtime or Lavalink server required.
-- **Ultra-Light Footprint**: Optimized memory consumption (<30-50MB RAM baseline) with zero memory leaks.
-- **Fast Playback & Caching**: Streams audio directly via `yt-dlp` and `ffmpeg-static` (Ogg Opus) with local disk caching for instant replays and loops.
-- **Auto Cache Management**: Automatically purges old cached tracks to optimize disk storage.
-- **Isolated VPN Tunnel Egress**: Supports ProtonVPN/OpenVPN isolated policy routing (`--source-address`) for full YouTube access without altering the host default gateway or endangering SSH access.
-- **Dynamic Free Proxy Pool**: Auto-scrapes and benchmarks public regional proxies (TH/SG/MY/JP/HK) with automated 6-hour blacklists on anti-bot detection.
-- **Circuit Breaker & SoundCloud Bypass**: Features an automatic YouTube circuit breaker that transparently falls back to SoundCloud streaming when datacenter IPs are blocked.
-- **Search & Playlist Support**: Supports direct YouTube URLs, search queries, and playlists (up to 25 items queued seamlessly).
-- **Advanced Queue System**: Supports queue insertion (`/gplay top`), queue jumping (`/gjump`), immediate skip-play (`/gskipplay`), and previous track recall (`/gprevious`).
-- **Comprehensive Playback Controls**: Pause, resume, seek, volume adjust, loop (single track / entire queue), and shuffle.
-- **Startup Diagnostics**: Automatically runs a pre-flight checklist on boot to verify tokens, binaries, and network configuration.
-- **Auto Disconnect**: Automatically disconnects from voice channels when idle or when all members leave.
-- **Hot-Reload Commands**: Admins can use `/gupdate` to reload all Slash commands instantly without restarting the bot process.
-- **Aesthetic UI**: Formatted with clean Hot Pink (`#FF69B4`) Discord Embeds.
+- **Ultra-Light Footprint**: Optimized memory consumption (~15–30 MB RAM baseline) with V8 GC tuning.
+- **Instant Playback & Pre-Caching**: Background pre-fetches and pre-caches upcoming songs to disk for 0s instantaneous skips (~160ms dispatch).
+- **Smart Autoplay (YouTube Radio Mix)**: Continuous playback powered by YouTube's official Radio Mix (`list=RD`) featuring **Artist Diversity Filtering** to maintain musical tone without repeating the same artist consecutively.
+- **Interactive 3-Row Player Card**: Beautiful Hot Pink Discord Embed with interactive buttons:
+  - Row 1: `[ ⏮️ Prev ] [ ⏪ -10s ] [ ⏯️ Play/Pause ] [ ⏩ +10s ] [ ⏭️ Skip ]`
+  - Row 2: `[ 🔀 Shuffle ] [ 🔁 Loop ] [ 📋 Queue ] [ 📄 Lyrics ] [ 💖 Favorites ]`
+  - Row 3: `[ 🔊 Volume ] [ 📻 Autoplay ] [ 🛑 Stop/Leave ]`
+- **Dead Card Auto-Cleaner**: Stale cards from previous tracks or bot restarts automatically delete themselves on interaction, plus on-demand `/gcleancard` channel sweep.
+- **Guild Settings Persistence**: Server volume and autoplay states are automatically saved per-guild in `data/guildSettings.json`, persisting across restarts and bot leaves.
+- **Hybrid Lyrics Engine**: Dual-tier lyrics provider querying LRCLIB first, with automatic YouTube Video Description regex fallback for Thai indie and rap releases.
+- **Isolated VPN Tunnel Egress**: Supports ProtonVPN/OpenVPN isolated policy routing (`--source-address`) for full YouTube access without altering host default routing or endangering SSH access.
+- **Dynamic Free Proxy Pool & Circuit Breaker**: Auto-benchmarks proxies with 6-hour anti-bot quarantine and transparent SoundCloud bypass when YouTube restricts datacenter IPs.
+- **Favorites System**: Personal bookmarking (`/gfav`) to store and playback your favorite tracks anytime.
 
 ---
 
@@ -51,13 +51,14 @@ All bot behavior, network egress, and VPN options are controlled via `.env`:
 | `ENABLE_FREE_PROXY` | `false` | Enable background discovery and benchmark of public regional proxies. |
 | `PROXY_URL` | *Optional* | Static VIP proxy URL (e.g. `http://user:pass@host:port`). |
 | `USE_IPV6` | `true` | Force IPv6 egress when no VPN or proxy is present. |
-| `STREAM_MODE` | `auto` | Streaming engine mode: `auto` (hybrid), `pipe` (Direct live pipe, 0 disk cache), or `cache` (disk download first). |
+| `STREAM_MODE` | `auto` | Streaming mode: `auto` (hybrid disk cache for <=6m songs, pipe for long mixes), `pipe` (live stream), or `cache`. |
+| `DEFAULT_VOLUME` | `100` | Default playback volume (0-150) for newly joined servers. |
 
 ---
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) (Version 16.11.0 or higher)
+- [Node.js](https://nodejs.org/) (Version 18.0.0 or higher recommended)
 - [PM2](https://pm2.keymetrics.io/) (Recommended for 24/7 background process management: `npm install pm2 -g`)
 - Discord Bot Token (Obtain from the [Discord Developer Portal](https://discord.com/developers/applications))
 
@@ -87,7 +88,7 @@ All bot behavior, network egress, and VPN options are controlled via `.env`:
    ```bash
    chmod +x bin/yt-dlp
    ```
-   *(Note: `ffmpeg` and `ffprobe` binaries are automatically downloaded to `bin/ffmpeg-bundle/` dynamically upon first startup!)*
+   *(Note: FFmpeg is automatically discovered from `/usr/bin/ffmpeg` or bundled in `bin/`!)*
 
 4. **Network & Anti-Ban Options (Do I need OpenVPN?)**
 
@@ -108,8 +109,8 @@ All bot behavior, network egress, and VPN options are controlled via `.env`:
        ```
      - The bot's built-in **YouTube Circuit Breaker** will automatically detect datacenter restrictions and seamlessly stream tracks through high-bitrate SoundCloud bypass without any extra setup.
 
-   - **Scenario 3: Running on a Cloud VPS with Isolated VPN (Recommended for Maximum Speed)**
-     - If you want 100% native YouTube audio streams at full download speeds (16+ MB/s) on a datacenter VPS, use our automated 1-command isolated VPN installer:
+   - **Scenario 3: Running on a Cloud VPS with Isolated VPN (Recommended for Full YouTube Access)**
+     - Automated isolated VPN installer:
        ```bash
        sudo bash scripts/setup-vpn.sh
        ```
@@ -131,11 +132,13 @@ node index.js
 
 ### Running with PM2 (24/7 Background)
 ```bash
-pm2 start index.js --name "dislava-bot"
+pm2 start ecosystem.config.cjs
+# or
+pm2 start index.js --name "goolix-bot"
 ```
 Check logs and status:
 ```bash
-pm2 logs dislava-bot
+pm2 logs
 pm2 status
 ```
 
@@ -143,41 +146,42 @@ pm2 status
 
 ## Slash Commands
 
-### Playback
-- `/gplay <query> [top]` - Play a song from title or URL (optional `top` to queue as next song)
+### 🎵 Playback & Autoplay
+- `/gplay <query> [top] [playlist]` - Play a song or search query (optional `top` to jump queue)
+- `/gplaylist <query> [limit]` - Enqueue full playlists or albums (5-100 tracks)
+- `/gautoplay` - Toggle intelligent continuous playback when queue is empty (saved per server)
 - `/gpause` - Pause the current playback
 - `/gresume` - Resume paused playback
 - `/gstop` - Stop playback, clear queue, and leave voice channel
+- `/gfav <add|list|play|remove>` - Manage and play your personal favorite songs
 
-### Queue Management
+### 📑 Queue Control
 - `/gqueue` - View current playback queue and pagination
-- `/gskip` - Skip current song
-- `/gskipplay <query>` - Skip current song and immediately play the new song
+- `/gskip` - Skip current song (triggers instant Autoplay if queue empty)
+- `/gskipplay <query>` - Skip current song and immediately play the new query
 - `/gprevious` - Replay the previous song
 - `/gshuffle` - Shuffle tracks in queue
 - `/gloop <mode>` - Set loop mode (`Off`, `Track`, `Queue`)
-- `/gclear` - Clear all pending tracks from the queue
-
-### Advanced Control
-- `/gseek <time>` - Seek to timestamp (e.g. `01:30` or `90`)
+- `/gclear` - Clear all pending tracks from queue
 - `/gjump <position>` - Jump a specific queued song to play next
+- `/gmove <from> <to>` - Move a track position in queue
 - `/gremove <position>` - Remove a specific track from queue
 
-### System & Diagnostics
-- `/gstats` - Real-time statistics: RAM RSS/Heap, Uptime, VPN/Proxy Egress status, Circuit Breaker state
-- `/gproxy status` - View proxy pool metrics, active count, and latency
-- `/gproxy test` - Benchmark current egress against YouTube anti-bot immediately
-- `/gproxy blacklist` - List currently blacklisted proxies
-- `/gproxy clear` - Clear proxy blacklist
+### 🎛️ Audio & Seek
+- `/gvolume [amount]` - View or adjust bot volume 0-150% (saved permanently per server)
+- `/gseek <time>` - Seek to timestamp (e.g. `01:30` or `90`)
+- `/gforward [seconds]` - Fast-forward playback (default: 10s)
+- `/gbackward [seconds]` - Rewind playback (default: 10s)
 
-### Info & Utility
-- `/gnowplaying` - View song progress and detailed track info
-- `/glyrics` - Search lyrics for the playing track
-- `/ghelp` - Show all commands and help guide
-
-### Admin Only
-- `/gvolume <amount>` - Adjust bot playback volume (0-150%)
-- `/gupdate` - Reload all command files and register Slash Commands without restarting
+### 🛡️ Info, Lyrics & Maintenance
+- `/gnowplaying` - View interactive player card with real-time progress bar
+- `/glyrics [query]` - View synchronized or plain lyrics (LRCLIB + YouTube fallback)
+- `/gcleancard` - Sweep and delete old/stale player cards from the current channel
+- `/gstats` - Real-time statistics: RAM RSS/Heap, Uptime, VPN Egress, Circuit Breaker state
+- `/gproxy <status|test|blacklist|clear>` - Manage smart proxy pool & benchmark egress
+- `/gping` - Check Discord API latency and WebSocket heartbeat
+- `/gupdate` - Hot-reload commands and register Slash Commands without rebooting
+- `/ghelp` - Show all commands and user guide
 
 ---
 
