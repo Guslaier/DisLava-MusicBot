@@ -137,7 +137,12 @@ function createNowPlayingCard(player, track) {
             .setCustomId('music_volume')
             .setEmoji('🔊')
             .setLabel('Volume')
-            .setStyle(ButtonStyle.Secondary)
+            .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+            .setCustomId('music_stop')
+            .setEmoji('🛑')
+            .setLabel('ปิดแอป')
+            .setStyle(ButtonStyle.Danger)
     );
 
     return {

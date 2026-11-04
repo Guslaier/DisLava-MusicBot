@@ -271,6 +271,17 @@ client.on('interactionCreate', async interaction => {
                     flags: MessageFlags.Ephemeral
                 });
             }
+            case 'music_stop': {
+                await interaction.reply({
+                    content: '🛑 ปิดแอปและออกจากห้องเสียงเรียบร้อยแล้วค่ะ! ไว้มาฟังเพลงด้วยกันใหม่น้า 👋💕',
+                    flags: MessageFlags.Ephemeral
+                }).catch(() => {});
+                try {
+                    await interaction.message?.delete().catch(() => {});
+                } catch {}
+                player.destroy();
+                return;
+            }
             case 'vol_30':
             case 'vol_60':
             case 'vol_100':
