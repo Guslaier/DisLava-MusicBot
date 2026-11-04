@@ -1,6 +1,6 @@
 const fs = require('fs');
 const os = require('os');
-const { execSync } = require('child_process');
+const { execFile } = require('child_process');
 const smartProxyPool = require('./smartProxyPool');
 
 class ProxyManager {
@@ -37,18 +37,16 @@ class ProxyManager {
         const serviceFile = '/etc/systemd/system/protonvpn-isolated.service';
         if (!fs.existsSync(serviceFile)) return;
 
-        try {
-            const isActive = execSync('systemctl is-active --quiet protonvpn-isolated && echo "1" || echo "0"', { encoding: 'utf8' }).trim() === '1';
+        execFile('systemctl', ['is-active', '--quiet', 'protonvpn-isolated'], (err) => {
+            const isActive = !err;
             if (this.vpnEnabled && !isActive) {
                 console.log('[ProxyManager] [VPN] Starting protonvpn-isolated service...');
-                execSync('systemctl start protonvpn-isolated');
+                execFile('systemctl', ['start', 'protonvpn-isolated'], () => {});
             } else if (!this.vpnEnabled && isActive) {
                 console.log('[ProxyManager] [VPN] Stopping protonvpn-isolated service (disabled via ENABLE_VPN=false)...');
-                execSync('systemctl stop protonvpn-isolated 2>/dev/null || true');
+                execFile('systemctl', ['stop', 'protonvpn-isolated'], () => {});
             }
-        } catch (err) {
-            console.warn('[ProxyManager] [VPN] Service control warning:', err.message);
-        }
+        });
     }
 
     /**
@@ -100,31 +98,34 @@ class ProxyManager {
     }
 
     /**
-     * Verifies that Linux policy routing table 100 is intact, restores if missing.
+     * Verifies that Linux policy routing table 100 is intact, restores if missing (Async non-blocking).
      */
-    verifyAndRepairVpnRoute() {
+    async verifyAndRepairVpnRoute() {
         if (process.platform !== 'linux' || !this.vpnEnabled) return false;
         const vpnIp = this.getVpnSourceIp();
         if (!vpnIp) return false;
 
-        try {
-            const rules = execSync('ip rule show', { encoding: 'utf8', timeout: 3000 });
-            const hasRule = rules.includes('lookup 100') || rules.includes('table 100');
-            if (!hasRule) {
-                console.warn(`[ProxyManager:SelfHealing] Missing Linux policy route rule for ${vpnIp}! Auto-restoring...`);
-                execSync(`ip rule add from ${vpnIp} table 100 2>/dev/null || true`, { timeout: 3000 });
-                execSync(`ip route replace default dev tun0 table 100 2>/dev/null || true`, { timeout: 3000 });
-                console.log('[ProxyManager:SelfHealing] Successfully restored policy routing table 100.');
-                return true;
-            }
-        } catch (err) {
-            console.warn('[ProxyManager:SelfHealing] Route inspection warning:', err.message);
-        }
-        return false;
+        return new Promise((resolve) => {
+            execFile('ip', ['rule', 'show'], (err, stdout) => {
+                if (err) return resolve(false);
+                const hasRule = (stdout || '').includes('lookup 100') || (stdout || '').includes('table 100');
+                if (!hasRule) {
+                    console.warn(`[ProxyManager:SelfHealing] Missing Linux policy route rule for ${vpnIp}! Auto-restoring...`);
+                    execFile('ip', ['rule', 'add', 'from', vpnIp, 'table', '100'], () => {
+                        execFile('ip', ['route', 'replace', 'default', 'dev', 'tun0', 'table', '100'], () => {
+                            console.log('[ProxyManager:SelfHealing] Successfully restored policy routing table 100.');
+                            resolve(true);
+                        });
+                    });
+                } else {
+                    resolve(false);
+                }
+            });
+        });
     }
 
     /**
-     * Checks VPN egress health and auto-switches to next server if failed.
+     * Checks VPN egress health asynchronously without blocking the event loop.
      */
     async checkVpnHealth(force = false) {
         if (process.platform !== 'linux' || !this.vpnEnabled) return true;
@@ -140,39 +141,39 @@ class ProxyManager {
             return false;
         }
 
-        this.verifyAndRepairVpnRoute();
+        this.verifyAndRepairVpnRoute().catch(() => {});
 
-        try {
-            const stdout = execSync(`curl -s -m 3 --interface ${vpnIp} https://api.ipify.org 2>/dev/null || true`, { encoding: 'utf8', timeout: 4000 }).trim();
-            if (stdout && /^\d+\.\d+\.\d+\.\d+$/.test(stdout)) {
-                if (!this.vpnHealthy) {
-                    console.log(`[ProxyManager:SelfHealing] VPN tunnel online! (Server: ${this.getVpnServerName()}, Exit IP: ${stdout})`);
+        return new Promise((resolve) => {
+            execFile('curl', ['-s', '-m', '3', '--interface', vpnIp, 'https://api.ipify.org'], (err, stdout) => {
+                const ip = (stdout || '').trim();
+                if (!err && ip && /^\d+\.\d+\.\d+\.\d+$/.test(ip)) {
+                    if (!this.vpnHealthy) {
+                        console.log(`[ProxyManager:SelfHealing] VPN tunnel online! (Server: ${this.getVpnServerName()}, Exit IP: ${ip})`);
+                    }
+                    this.vpnHealthy = true;
+                    this.consecutiveVpnFailures = 0;
+                    return resolve(true);
                 }
-                this.vpnHealthy = true;
-                this.consecutiveVpnFailures = 0;
-                return true;
-            }
-        } catch {}
 
-        this.consecutiveVpnFailures++;
-        console.warn(`[ProxyManager:SelfHealing] VPN egress probe failed (${this.consecutiveVpnFailures} consecutive fails)`);
+                this.consecutiveVpnFailures++;
+                console.warn(`[ProxyManager:SelfHealing] VPN egress probe failed (${this.consecutiveVpnFailures} consecutive fails)`);
 
-        this.verifyAndRepairVpnRoute();
-
-        if (this.consecutiveVpnFailures >= 2 && !this.isRepairingVpn) {
-            this.isRepairingVpn = true;
-            this.vpnHealthy = false;
-            console.warn('[ProxyManager:SelfHealing] Failing over to next SG VPN server in pool...');
-            setTimeout(async () => {
-                await this.switchVpnServer('next');
-                this.isRepairingVpn = false;
-            }, 1000).unref();
-        }
-        return false;
+                if (this.consecutiveVpnFailures >= 2 && !this.isRepairingVpn) {
+                    this.isRepairingVpn = true;
+                    this.vpnHealthy = false;
+                    console.warn('[ProxyManager:SelfHealing] Failing over to next SG VPN server in pool...');
+                    setTimeout(async () => {
+                        await this.switchVpnServer('next');
+                        this.isRepairingVpn = false;
+                    }, 1000).unref();
+                }
+                resolve(false);
+            });
+        });
     }
 
     /**
-     * Switches to the next or specified VPN server in the Singapore pool.
+     * Switches to the next or specified VPN server asynchronously.
      */
     async switchVpnServer(target = 'next') {
         if (process.platform !== 'linux') {
@@ -183,18 +184,21 @@ class ProxyManager {
         }
 
         console.log(`[ProxyManager:VPN] Initiating VPN switch (target: ${target})...`);
-        try {
-            const out = execSync(`/root/vpn/vpn-switch.sh ${target}`, { encoding: 'utf8', timeout: 20000 });
-            console.log(`[ProxyManager:VPN] Switch output:\n${out.trim()}`);
-            this.vpnHealthy = true;
-            this.consecutiveVpnFailures = 0;
-            const newServer = this.getVpnServerName();
-            const newIp = this.getVpnSourceIp();
-            return { ok: true, server: newServer, ip: newIp, output: out };
-        } catch (err) {
-            console.error('[ProxyManager:VPN] Switch failed:', err.message);
-            return { ok: false, reason: err.message };
-        }
+        return new Promise((resolve) => {
+            execFile('/root/vpn/vpn-switch.sh', [target], { timeout: 20000 }, (err, stdout) => {
+                if (err) {
+                    console.error('[ProxyManager:VPN] Switch failed:', err.message);
+                    return resolve({ ok: false, reason: err.message });
+                }
+                const out = (stdout || '').trim();
+                console.log(`[ProxyManager:VPN] Switch output:\n${out}`);
+                this.vpnHealthy = true;
+                this.consecutiveVpnFailures = 0;
+                const newServer = this.getVpnServerName();
+                const newIp = this.getVpnSourceIp();
+                resolve({ ok: true, server: newServer, ip: newIp, output: out });
+            });
+        });
     }
 
     /**
@@ -241,14 +245,10 @@ class ProxyManager {
 
         const vpnIp = this.getVpnSourceIp();
         if (vpnIp) {
-            this.verifyAndRepairVpnRoute();
+            await this.verifyAndRepairVpnRoute();
             console.log(`[ProxyManager] [VPN] VPN Egress Active (Server: ${this.getVpnServerName()} | Interface IP: ${vpnIp})`);
         } else if (!this.vpnEnabled) {
             console.log('[ProxyManager] [VPN] VPN Egress Disabled via ENABLE_VPN=false');
-        }
-
-        if (this.vpnEnabled) {
-            setInterval(() => this.checkVpnHealth(), 60000).unref();
         }
 
         // Initialize Smart Proxy Pool
