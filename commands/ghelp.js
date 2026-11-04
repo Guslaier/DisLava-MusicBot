@@ -55,6 +55,7 @@ module.exports = {
                     name: '🛡️ หมวดข้อมูล & ระบบเน็ตเวิร์ก (System & Network)',
                     value: [
                         '`/gnowplaying` - ดูการ์ดเพลงและแผงปุ่มควบคุม Now Playing',
+                        '`/gcleancard` - กวาดล้างการ์ดเพลงเก่าหรือการ์ดที่ค้างอยู่ในห้องแชท',
                         '`/glyrics` - ค้นหาและดูเนื้อเพลง',
                         '`/gstats` - ดูสถิติระบบ, RAM, Uptime, Audio Engine และสถานะ VPN',
                         '`/gproxy` - เช็คและจัดการระบบเครือข่าย VPN / Smart Proxy (status, test, switch)',

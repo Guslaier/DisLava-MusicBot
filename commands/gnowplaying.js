@@ -21,7 +21,17 @@ module.exports = {
             return interaction.reply({ embeds: [embed], flags: 64 });
         }
 
+        // Delete previous card to avoid duplicate stale cards in the channel
+        if (player.nowPlayingMessage) {
+            try {
+                await player.nowPlayingMessage.delete().catch(() => {});
+            } catch {}
+            player.nowPlayingMessage = null;
+        }
+
         const cardData = createNowPlayingCard(player, track);
-        return interaction.reply(cardData);
+        const replyMsg = await interaction.reply({ ...cardData, fetchReply: true });
+        player.nowPlayingMessage = replyMsg;
+        return replyMsg;
     }
 };

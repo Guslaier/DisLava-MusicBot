@@ -153,10 +153,34 @@ client.on('interactionCreate', async interaction => {
 
         const player = kazagumo.players.get(interaction.guildId);
         if (!player || !player.playing || !player.queue.current) {
+            if (customId.startsWith('music_')) {
+                try {
+                    await interaction.message.delete();
+                } catch {
+                    await interaction.message.edit({ components: [] }).catch(() => {});
+                }
+                return interaction.reply({
+                    content: '🗑️ ตรวจพบการ์ดเพลงที่หมดอายุ/หยุดเล่นแล้ว ระบบลบการ์ดทิ้งให้เรียบร้อยค่ะ!',
+                    flags: MessageFlags.Ephemeral
+                }).catch(() => {});
+            }
             return interaction.reply({
                 content: '❌ ไม่มีเพลงที่กำลังเล่นอยู่ตอนนี้ค่ะ',
                 flags: MessageFlags.Ephemeral
             });
+        }
+
+        // Stale card check: delete old lingering cards from previous tracks
+        if (customId.startsWith('music_') && player.nowPlayingMessage && interaction.message.id !== player.nowPlayingMessage.id) {
+            try {
+                await interaction.message.delete();
+            } catch {
+                await interaction.message.edit({ components: [] }).catch(() => {});
+            }
+            return interaction.reply({
+                content: '🗑️ ตรวจพบการ์ดเพลงเก่าที่ค้างอยู่ ระบบลบทิ้งให้แล้วค่ะ (กรุณาใช้การ์ดล่าสุดด้านล่างนะคะ 💕)',
+                flags: MessageFlags.Ephemeral
+            }).catch(() => {});
         }
 
         const voiceChannel = interaction.member?.voice?.channel;
