@@ -1,4 +1,5 @@
 const { execFile, spawn, execSync } = require('child_process');
+const { PassThrough } = require('stream');
 const path = require('path');
 const fs = require('fs');
 const proxyManager = require('./helpers/proxyManager');
@@ -72,11 +73,12 @@ class CacheManager {
             '--no-playlist',
             '--no-warnings',
             '--no-progress',
-            '--retries', '1',
-            '--fragment-retries', '2',
+            '--retries', '2',
+            '--fragment-retries', '3',
             '--retry-sleep', '1',
-            '--socket-timeout', '6',
-            '--buffer-size', '16K',
+            '--socket-timeout', '10',
+            '--buffer-size', '512K',
+            '--http-chunk-size', '512K',
             '--js-runtimes', 'node',
             '-f', '251/bestaudio/best'
         ];
@@ -221,7 +223,11 @@ class CacheManager {
             const ytdlpArgs = this._buildYtDlpArgs(sourceUri, true);
             const ytdlpProc = spawn(this.binPath, ytdlpArgs);
 
-            const ffmpegArgs = ['-nostdin', '-loglevel', 'error'];
+            const ffmpegArgs = [
+                '-nostdin',
+                '-loglevel', 'error',
+                '-thread_queue_size', '1024'
+            ];
             if (seekSeconds > 0) {
                 ffmpegArgs.push('-ss', seekSeconds.toString());
             }
@@ -233,6 +239,7 @@ class CacheManager {
                 '-c:a', 'libopus',
                 '-b:a', '96k',
                 '-vbr', 'on',
+                '-application', 'audio',
                 '-ar', '48000',
                 '-ac', '2',
                 '-f', 'opus',
@@ -249,11 +256,16 @@ class CacheManager {
             // Pipe yt-dlp stdout into ffmpeg stdin
             ytdlpProc.stdout.pipe(ffmpegProc.stdin);
 
+            // High-capacity 512KB PassThrough stream buffer to absorb any network jitter
+            const outputStream = new PassThrough({ highWaterMark: 1024 * 512 });
+            ffmpegProc.stdout.pipe(outputStream);
+
             let hasOutput = false;
             let isHandled = false;
             let stderrBuffer = '';
             let ffmpegStderr = '';
             let streamTimeout = null;
+            let releaseTimer = null;
 
             ytdlpProc.stderr.on('data', (chunk) => {
                 stderrBuffer += chunk.toString();
@@ -265,20 +277,23 @@ class CacheManager {
                 if (ffmpegStderr.length > 2000) ffmpegStderr = ffmpegStderr.slice(-2000);
             });
 
-            const stream = ffmpegProc.stdout;
-
             // Combined kill helper for clean termination
-            stream.kill = () => {
+            outputStream.kill = () => {
                 if (streamTimeout) {
                     clearTimeout(streamTimeout);
                     streamTimeout = null;
                 }
+                if (releaseTimer) {
+                    clearTimeout(releaseTimer);
+                    releaseTimer = null;
+                }
                 try { ytdlpProc.kill('SIGKILL'); } catch {}
                 try { ffmpegProc.kill('SIGKILL'); } catch {}
+                try { outputStream.destroy(); } catch {}
             };
 
             if (typeof onSpawn === 'function') {
-                onSpawn(stream);
+                onSpawn(outputStream);
             }
 
             const triggerFallbackOrReject = async (reason, isBotBan = false) => {
@@ -300,7 +315,11 @@ class CacheManager {
                     clearTimeout(streamTimeout);
                     streamTimeout = null;
                 }
-                stream.kill();
+                if (releaseTimer) {
+                    clearTimeout(releaseTimer);
+                    releaseTimer = null;
+                }
+                outputStream.kill();
 
                 if (!isFallback) {
                     console.log(`[CacheManager] Auto-switching to SoundCloud stream for: ${track.title}${isBotBan ? ' (Anti-Bot detected)' : ''}`);
@@ -315,24 +334,50 @@ class CacheManager {
                 }
             };
 
-            // Detect if stream started outputting audio bytes without consuming Ogg headers
-            stream.once('data', (chunk) => {
+            let bufferedBytes = 0;
+            const initialChunks = [];
+
+            const releaseStream = () => {
+                if (hasOutput || isHandled) return;
                 hasOutput = true;
                 isHandled = true;
+                outputStream.off('data', onData);
+                if (releaseTimer) {
+                    clearTimeout(releaseTimer);
+                    releaseTimer = null;
+                }
+                if (streamTimeout) {
+                    clearTimeout(streamTimeout);
+                    streamTimeout = null;
+                }
                 const activeProxy = proxyManager.getYouTubeProxy();
                 if (activeProxy && !isFallback) {
                     proxyManager.reportSuccess(activeProxy, Date.now() - startTime);
                 }
                 track.realSource = isFallback ? 'SoundCloud (Bypass Fallback)' : (track.uri && track.uri.includes('soundcloud.com') ? 'SoundCloud (Direct)' : 'YouTube (Direct)');
-                console.log(`[CacheManager:Stream] First audio packet received for "${track.title}" in ${Date.now() - startTime}ms | Real Source: ${track.realSource}`);
-                if (streamTimeout) {
-                    clearTimeout(streamTimeout);
-                    streamTimeout = null;
+                console.log(`[CacheManager:Stream] First audio buffer dispatched for "${track.title}" in ${Date.now() - startTime}ms (${bufferedBytes} bytes pre-buffered) | Real Source: ${track.realSource}`);
+                outputStream.pause();
+                for (let i = initialChunks.length - 1; i >= 0; i--) {
+                    outputStream.unshift(initialChunks[i]);
                 }
-                stream.pause();
-                stream.unshift(chunk);
-                resolve(stream);
-            });
+                resolve(outputStream);
+            };
+
+            const onData = (chunk) => {
+                bufferedBytes += chunk.length;
+                initialChunks.push(chunk);
+
+                if (!releaseTimer) {
+                    releaseTimer = setTimeout(releaseStream, 200);
+                    releaseTimer.unref();
+                }
+
+                if (bufferedBytes >= 32 * 1024) {
+                    releaseStream();
+                }
+            };
+
+            outputStream.on('data', onData);
 
             // Handle premature failures
             ytdlpProc.on('error', async (err) => {

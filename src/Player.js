@@ -4,6 +4,7 @@ const {
     createAudioResource, 
     AudioPlayerStatus, 
     VoiceConnectionStatus, 
+    NoSubscriberBehavior,
     entersState, 
     StreamType 
 } = require('@discordjs/voice');
@@ -87,7 +88,12 @@ class Player {
         this.playbackStartTime = 0;
 
         this.queue = new PlayerQueue(this);
-        this.audioPlayer = createAudioPlayer();
+        this.audioPlayer = createAudioPlayer({
+            behaviors: {
+                noSubscriber: NoSubscriberBehavior.Pause,
+                maxMissedFrames: 250
+            }
+        });
         this.connection = null;
         this.currentResource = null;
         this.currentProcess = null;
