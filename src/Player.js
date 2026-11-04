@@ -88,10 +88,11 @@ class Player {
         this.playbackStartTime = 0;
 
         this.queue = new PlayerQueue(this);
+        const maxMissedFrames = parseInt(process.env.MAX_MISSED_FRAMES || '350', 10);
         this.audioPlayer = createAudioPlayer({
             behaviors: {
                 noSubscriber: NoSubscriberBehavior.Pause,
-                maxMissedFrames: 250
+                maxMissedFrames: maxMissedFrames
             }
         });
         this.connection = null;

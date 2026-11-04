@@ -68,6 +68,10 @@ class CacheManager {
     }
 
     _buildYtDlpArgs(source, isStreamOutput = false, outTemplate = null) {
+        const bufferSize = process.env.STREAM_BUFFER_SIZE || '512K';
+        const chunkSize = process.env.STREAM_CHUNK_SIZE || '512K';
+        const socketTimeout = process.env.STREAM_SOCKET_TIMEOUT || '10';
+
         const args = [
             '--no-cache-dir',
             '--no-playlist',
@@ -76,9 +80,9 @@ class CacheManager {
             '--retries', '2',
             '--fragment-retries', '3',
             '--retry-sleep', '1',
-            '--socket-timeout', '10',
-            '--buffer-size', '512K',
-            '--http-chunk-size', '512K',
+            '--socket-timeout', socketTimeout,
+            '--buffer-size', bufferSize,
+            '--http-chunk-size', chunkSize,
             '--js-runtimes', 'node',
             '-f', '251/bestaudio/best'
         ];
@@ -188,17 +192,24 @@ class CacheManager {
             return this._trySoundCloudFallback(track, seekSeconds, volume, onSpawn);
         }
 
-        const streamMode = (process.env.STREAM_MODE || 'pipe').toLowerCase().trim();
+        const streamMode = (process.env.STREAM_MODE || 'cache').toLowerCase().trim();
         const durationSec = track.duration || (track.length ? Math.round(track.length / 1000) : 0);
 
-        // 3. Ultra-Fast Live Pipe Streaming (Default, <2.5s start latency)
-        if (streamMode !== 'cache') {
-            console.log(`[CacheManager:Stream] Live pipe stream for "${track.title}" (Mode: ${streamMode}, Duration: ${durationSec}s, Seek: ${seekSeconds}s)`);
+        // 1. Live Pipe Mode: stream directly via live pipe (<2.5s start latency)
+        if (streamMode === 'pipe') {
+            console.log(`[CacheManager:Stream] Live pipe stream for "${track.title}" (Mode: pipe, Duration: ${durationSec}s, Seek: ${seekSeconds}s)`);
             return this._spawnPipedStream(track, track.uri, seekSeconds, volume, false, onSpawn);
         }
 
-        // 4. Dedicated Disk Cache Mode (Only when explicitly configured with STREAM_MODE=cache)
+        // 2. Auto Mode: Direct live pipe for long tracks (>6 min), seeking, or live streams
+        if (streamMode === 'auto' && (track.isStream || durationSec > 360 || seekSeconds > 0)) {
+            console.log(`[CacheManager:Stream] Live pipe stream for long/live track "${track.title}" (Mode: auto, Duration: ${durationSec}s)`);
+            return this._spawnPipedStream(track, track.uri, seekSeconds, volume, false, onSpawn);
+        }
+
+        // 3. Cache Mode (Default, Zero-Stutter): Download full track to NVMe disk before playback
         try {
+            console.log(`[CacheManager:Stream] Caching track to disk before playback: "${track.title}" (Mode: ${streamMode})`);
             await this.prepareTrack(track, false, onSpawn);
             if (this.isCached(identifier)) {
                 return this._streamFromDisk(targetPath, seekSeconds, volume, onSpawn);
@@ -213,7 +224,7 @@ class CacheManager {
             return this._spawnPipedStream(track, track.uri, seekSeconds, volume, false, onSpawn);
         }
 
-        // 5. Fallback to direct streaming
+        // 4. Fallback to direct streaming
         return this._spawnPipedStream(track, track.uri, seekSeconds, volume, false, onSpawn);
     }
 
@@ -223,10 +234,16 @@ class CacheManager {
             const ytdlpArgs = this._buildYtDlpArgs(sourceUri, true);
             const ytdlpProc = spawn(this.binPath, ytdlpArgs);
 
+            const threadQueueSize = process.env.THREAD_QUEUE_SIZE || '1024';
+            const opusBitrate = process.env.OPUS_BITRATE || '96k';
+            const passThroughKb = parseInt(process.env.PASSTHROUGH_BUFFER_KB || '512', 10);
+            const preBufferKb = parseInt(process.env.PRE_BUFFER_KB || '32', 10);
+            const preBufferTimeoutMs = parseInt(process.env.PRE_BUFFER_TIMEOUT_MS || '200', 10);
+
             const ffmpegArgs = [
                 '-nostdin',
                 '-loglevel', 'error',
-                '-thread_queue_size', '1024'
+                '-thread_queue_size', threadQueueSize
             ];
             if (seekSeconds > 0) {
                 ffmpegArgs.push('-ss', seekSeconds.toString());
@@ -237,7 +254,7 @@ class CacheManager {
             }
             ffmpegArgs.push(
                 '-c:a', 'libopus',
-                '-b:a', '96k',
+                '-b:a', opusBitrate,
                 '-vbr', 'on',
                 '-application', 'audio',
                 '-ar', '48000',
@@ -256,8 +273,8 @@ class CacheManager {
             // Pipe yt-dlp stdout into ffmpeg stdin
             ytdlpProc.stdout.pipe(ffmpegProc.stdin);
 
-            // High-capacity 512KB PassThrough stream buffer to absorb any network jitter
-            const outputStream = new PassThrough({ highWaterMark: 1024 * 512 });
+            // High-capacity PassThrough stream buffer configured via env
+            const outputStream = new PassThrough({ highWaterMark: 1024 * passThroughKb });
             ffmpegProc.stdout.pipe(outputStream);
 
             let hasOutput = false;
@@ -368,11 +385,11 @@ class CacheManager {
                 initialChunks.push(chunk);
 
                 if (!releaseTimer) {
-                    releaseTimer = setTimeout(releaseStream, 200);
+                    releaseTimer = setTimeout(releaseStream, preBufferTimeoutMs);
                     releaseTimer.unref();
                 }
 
-                if (bufferedBytes >= 32 * 1024) {
+                if (bufferedBytes >= preBufferKb * 1024) {
                     releaseStream();
                 }
             };
@@ -485,7 +502,9 @@ class CacheManager {
             const args = this._buildYtDlpArgs(track.uri, false, outTemplate);
             const activeProxy = isYouTube ? proxyManager.getYouTubeProxy() : null;
             const startTime = Date.now();
-            const downloadTimeout = isBackground ? 45000 : 25000;
+            const downloadTimeout = isBackground 
+                ? parseInt(process.env.DOWNLOAD_TIMEOUT_BG_MS || '50000', 10) 
+                : parseInt(process.env.DOWNLOAD_TIMEOUT_MS || '35000', 10);
 
             try {
                 await new Promise((resolve, reject) => {
@@ -556,11 +575,14 @@ class CacheManager {
      * Strict Disk LRU Sweeper:
      * Enforces strict 50MB disk quota to protect container from ENOSPC errors.
      */
-    cleanOldCache(maxAgeHours = 2) {
+    cleanOldCache(maxAgeHours = null) {
         try {
             if (!fs.existsSync(this.cacheDir)) return;
             const now = Date.now();
-            const maxAgeMs = maxAgeHours * 60 * 60 * 1000;
+            const ageHours = maxAgeHours !== null 
+                ? maxAgeHours 
+                : parseFloat(process.env.CACHE_MAX_AGE_HOURS || '2');
+            const maxAgeMs = ageHours * 60 * 60 * 1000;
             const files = fs.readdirSync(this.cacheDir);
 
             let totalSizeBytes = 0;
@@ -579,8 +601,9 @@ class CacheManager {
                 } catch {}
             }
 
-            const maxCacheBytes = 50 * 1024 * 1024;
-            const targetBytes = 30 * 1024 * 1024;
+            const maxMb = parseInt(process.env.CACHE_MAX_SIZE_MB || '100', 10);
+            const maxCacheBytes = maxMb * 1024 * 1024;
+            const targetBytes = Math.round(maxCacheBytes * 0.6);
             if (totalSizeBytes > maxCacheBytes) {
                 fileStats.sort((a, b) => a.mtime - b.mtime);
                 for (const item of fileStats) {
