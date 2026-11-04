@@ -446,40 +446,66 @@ class Player {
 
     async _findNextAutoplayTrack(lastTrack) {
         try {
-            const cleanTitle = (lastTrack.title || '')
-                .replace(/\[.*?\]|\(.*?\)|【.*?】|MV|Official|Music Video|Audio|Lyrics/gi, '')
-                .replace(/[|/\\#~!?@$%^&*_+<>{}=]/g, ' ')
-                .replace(/\s+/g, ' ')
-                .trim();
-            const cleanAuthor = (lastTrack.author || '')
-                .replace(/- topic|official|channel|vevo/gi, '')
-                .trim();
+            const ytMatch = (lastTrack.uri || '').match(/(?:v=|\/embed\/|\/17\/|\/v\/|https:\/\/youtu\.be\/|\/shorts\/)([a-zA-Z0-9_-]{11})/);
+            const videoId = lastTrack.identifier && lastTrack.identifier.length === 11 
+                ? lastTrack.identifier 
+                : (ytMatch ? ytMatch[1] : null);
 
-            const query = cleanTitle ? `${cleanTitle} related` : `${cleanAuthor} song`;
-            console.log(`[Player] Autoplay searching: "${query}" (Based on: "${lastTrack.title}")`);
+            let candidates = [];
 
-            let result = await this.manager.search(query, {
-                requester: lastTrack.requester || this.manager.client?.user
-            });
+            // Tier 1: YouTube Official Radio Mix (list=RD<videoId>)
+            if (videoId) {
+                const radioUrl = `https://www.youtube.com/watch?v=${videoId}&list=RD${videoId}`;
+                console.log(`[Player:Autoplay] Fetching YouTube Radio Mix for: "${lastTrack.title}" (${videoId})`);
+                const res = await this.manager.search(radioUrl, {
+                    requester: lastTrack.requester || this.manager.client?.user,
+                    forcePlaylist: true,
+                    limit: 15
+                });
+                if (res && res.tracks && res.tracks.length > 0) {
+                    candidates = res.tracks;
+                }
+            }
 
-            if (!result || !result.tracks || result.tracks.length === 0) {
-                const fallbackQuery = cleanAuthor ? `${cleanAuthor} song` : `${cleanTitle} music`;
-                console.log(`[Player] Autoplay fallback searching: "${fallbackQuery}"`);
-                result = await this.manager.search(fallbackQuery, {
+            // Tier 2: Keyword search fallback if Radio Mix failed or non-YouTube
+            if (candidates.length === 0) {
+                const cleanTitle = (lastTrack.title || '')
+                    .replace(/\[.*?\]|\(.*?\)|【.*?】|MV|Official|Music Video|Audio|Lyrics/gi, '')
+                    .replace(/[|/\\#~!?@$%^&*_+<>{}=]/g, ' ')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+                const cleanAuthor = (lastTrack.author || '')
+                    .replace(/- topic|official|channel|vevo/gi, '')
+                    .trim();
+
+                const query = cleanAuthor ? `${cleanAuthor} song` : `${cleanTitle} music`;
+                console.log(`[Player:Autoplay] Fallback keyword search: "${query}"`);
+                const res = await this.manager.search(query, {
                     requester: lastTrack.requester || this.manager.client?.user
                 });
+                if (res && res.tracks) {
+                    candidates = res.tracks;
+                }
             }
 
-            if (result && result.tracks && result.tracks.length > 0) {
-                const nextTrack = result.tracks.find(t => 
-                    !this.playedHistory.has(t.identifier) && 
-                    !this.playedHistory.has(t.uri) && 
-                    t.uri !== lastTrack.uri && 
-                    t.identifier !== lastTrack.identifier
-                ) || result.tracks.find(t => t.uri !== lastTrack.uri && t.identifier !== lastTrack.identifier) || result.tracks[0];
+            // Filter out: current track, recently played tracks, tracks already in queue
+            const isFresh = (t) => {
+                if (!t) return false;
+                if (t.identifier === lastTrack.identifier || t.uri === lastTrack.uri) return false;
+                if (t.identifier && this.playedHistory.has(t.identifier)) return false;
+                if (t.uri && this.playedHistory.has(t.uri)) return false;
+                if (this.queue.some(q => (q.identifier && q.identifier === t.identifier) || q.uri === t.uri)) return false;
+                return true;
+            };
 
-                return nextTrack || null;
+            const nextTrack = candidates.find(isFresh);
+            if (nextTrack) {
+                return nextTrack;
             }
+
+            // If all candidates were in recent history, pick candidate that is at least not identical to current track
+            const fallbackFresh = candidates.find(t => t.identifier !== lastTrack.identifier && t.uri !== lastTrack.uri);
+            return fallbackFresh || null;
         } catch (err) {
             console.warn('[Player] Autoplay search failed:', err.message);
         }
