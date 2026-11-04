@@ -37,7 +37,7 @@ module.exports = {
 
         const embed = new EmbedBuilder()
             .setColor('#FF69B4')
-            .setTitle('📊 ข้อมูลสถิติและสถานะระบบ DisLava')
+            .setTitle('📊 ข้อมูลสถิติและสถานะระบบ GOOLIX')
             .addFields(
                 { name: '⏱️ Uptime', value: `\`${uptimeStr}\``, inline: true },
                 { name: '🧠 RAM (RSS / Heap)', value: `\`${rssMB} MB / ${heapUsedMB} MB\``, inline: true },

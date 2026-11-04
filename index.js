@@ -120,7 +120,14 @@ kazagumo.on("playerEmpty", player => {
 });
 
 client.on('clientReady', async () => {
-    console.log(`✅ Logged in as ${client.user.tag} (Ultra-Light Engine)!`);
+    console.log(`✅ Logged in as ${client.user.tag} (GOOLIX Ultra-Light Engine)!`);
+
+    // Try setting Discord bot username to GOOLIX if different
+    if (client.user.username !== 'GOOLIX') {
+        client.user.setUsername('GOOLIX').catch(err => {
+            console.log(`[Username] Note: Discord username can be changed in Discord Dev Portal if rate-limited: ${err.message}`);
+        });
+    }
 
     // Clean old cache at startup and sweep every 15 minutes (max 50MB quota)
     cacheManager.cleanOldCache(2);
@@ -453,7 +460,7 @@ client.on('voiceStateUpdate', (oldState, newState) => {
 
 // --- Startup Checklist ---
 async function runStartupCheck() {
-    console.log('\n--- 🚀 [DisLava] Startup Checklist ---');
+    console.log('\n--- 🚀 [GOOLIX] Startup Checklist ---');
     let allGood = true;
 
     // 1. Check Token

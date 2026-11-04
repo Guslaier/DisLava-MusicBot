@@ -83,7 +83,7 @@ class LyricsHelper {
             try {
                 const url = `https://lrclib.net/api/search?q=${encodeURIComponent(q.trim())}`;
                 const res = await fetch(url, { 
-                    headers: { 'User-Agent': 'DisLava-MusicBot/1.0 (Discord Audio Engine)' },
+                    headers: { 'User-Agent': 'GOOLIX-MusicBot/1.0 (Discord Audio Engine)' },
                     signal: AbortSignal.timeout(4000)
                 });
                 if (!res.ok) continue;

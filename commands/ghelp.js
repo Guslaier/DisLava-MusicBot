@@ -8,8 +8,8 @@ module.exports = {
     run: async (client, interaction) => {
         const embed = new EmbedBuilder()
             .setColor('#FF69B4')
-            .setTitle('📖 คู่มือการใช้งาน ดีเจบอทสุดคิ้วท์ (DisLava)')
-            .setDescription('สวัสดีค่ะ! รวมคำสั่งทั้งหมด 28 คำสั่งของบอทนะคะ 💖\nพิมพ์ `/` แล้วตามด้วยชื่อคำสั่งเพื่อเรียกใช้งานได้เลยค่ะ!')
+            .setTitle('📖 คู่มือการใช้งาน ดีเจบอท GOOLIX')
+            .setDescription('สวัสดีค่ะ! รวมคำสั่งทั้งหมดของ GOOLIX นะคะ 💖\nพิมพ์ `/` แล้วตามด้วยชื่อคำสั่งเพื่อเรียกใช้งานได้เลยค่ะ!')
             .setThumbnail(client.user.displayAvatarURL())
             .addFields(
                 {
