@@ -8,6 +8,7 @@ const {
     entersState, 
     StreamType 
 } = require('@discordjs/voice');
+const prism = require('prism-media');
 const CacheManager = require('./CacheManager');
 
 class PlayerQueue extends Array {
@@ -91,7 +92,7 @@ class Player {
         const maxMissedFrames = parseInt(process.env.MAX_MISSED_FRAMES || '350', 10);
         this.audioPlayer = createAudioPlayer({
             behaviors: {
-                noSubscriber: NoSubscriberBehavior.Pause,
+                noSubscriber: NoSubscriberBehavior.Play,
                 maxMissedFrames: maxMissedFrames
             }
         });
@@ -226,6 +227,32 @@ class Player {
         await this._advanceQueue();
     }
 
+    _createBufferedResource(stream) {
+        // High-capacity Opus demuxer buffer: buffers up to 250 Opus frames (~5-7s) in RAM (~180 KB)
+        // Prevents audio stutter caused by the default tiny 16-frame buffer in @discordjs/voice
+        const demuxer = new prism.opus.OggDemuxer({ readableHighWaterMark: 250 });
+        stream.on('error', (err) => {
+            try { demuxer.destroy(err); } catch {}
+        });
+        demuxer.on('error', (err) => {
+            console.error('[AudioDemuxer] Demuxer stream error:', err.message);
+        });
+
+        const demuxed = stream.pipe(demuxer);
+        demuxed.kill = () => {
+            try {
+                if (stream.kill) stream.kill();
+                else if (stream.destroy) stream.destroy();
+            } catch {}
+            try { demuxer.destroy(); } catch {}
+        };
+
+        return {
+            resource: createAudioResource(demuxed, { inputType: StreamType.Opus }),
+            stream: demuxed
+        };
+    }
+
     async playTrack(track) {
         const token = ++this._playToken;
         this._starting = true;
@@ -263,11 +290,9 @@ class Player {
                 return;
             }
 
-            this.currentProcess = stream;
-
-            const resource = createAudioResource(stream, {
-                inputType: StreamType.OggOpus
-            });
+            const buffered = this._createBufferedResource(stream);
+            this.currentProcess = buffered.stream;
+            const resource = buffered.resource;
 
             this.currentResource = resource;
             this.audioPlayer.play(resource);
@@ -393,11 +418,9 @@ class Player {
                 this.currentProcess = proc;
             });
 
-            this.currentProcess = stream;
-
-            const resource = createAudioResource(stream, {
-                inputType: StreamType.OggOpus
-            });
+            const buffered = this._createBufferedResource(stream);
+            this.currentProcess = buffered.stream;
+            const resource = buffered.resource;
 
             this.currentResource = resource;
             this.position = positionMs;
