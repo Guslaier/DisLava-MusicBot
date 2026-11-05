@@ -108,6 +108,8 @@ class Player {
         this._advancing = false;
         this._starting = false; // in-flight guard
         this._isSkipping = false;
+        this._destroyed = false;
+        this._isStopping = false;
 
         this._setupVoiceConnection(options);
         this._setupAudioPlayer();
@@ -146,6 +148,7 @@ class Player {
 
     _setupAudioPlayer() {
         this.audioPlayer.on('stateChange', (oldState, newState) => {
+            if (this._destroyed || this._isStopping) return;
             if (newState.status === AudioPlayerStatus.Playing) {
                 this.playing = true;
                 this.paused = false;
@@ -157,12 +160,14 @@ class Player {
         });
 
         this.audioPlayer.on(AudioPlayerStatus.Idle, async () => {
+            if (this._destroyed || this._isStopping) return;
             if (this._starting) return;
             if (this._advancing) return;
             await this._advanceQueue();
         });
 
         this.audioPlayer.on('error', (error) => {
+            if (this._destroyed || this._isStopping) return;
             console.error(`AudioPlayer error in guild ${this.guildId}:`, error.message);
             this.manager.emit('playerException', this, this.queue.current, error);
             this.skip();
@@ -170,9 +175,11 @@ class Player {
     }
 
     async _advanceQueue() {
-        if (this._advancing) return;
+        if (this._destroyed || this._isStopping || this._advancing) return;
+        if (!this.connection) return;
         this._advancing = true;
         try {
+            if (this._destroyed || this._isStopping || !this.connection) return;
             if (this.currentProcess) {
                 try { this.currentProcess.kill(); } catch {}
                 this.currentProcess = null;
@@ -189,6 +196,8 @@ class Player {
                 this.queue.previous = finishedTrack;
                 this.manager.emit('playerEnd', this, finishedTrack);
 
+                if (this._destroyed || this._isStopping || !this.connection) return;
+
                 if (this.loop === 'track' && !isSkip) {
                     await this.playTrack(finishedTrack);
                     return;
@@ -196,6 +205,8 @@ class Player {
                     this.queue.add(finishedTrack);
                 }
             }
+
+            if (this._destroyed || this._isStopping || !this.connection) return;
 
             const referenceTrack = finishedTrack || this.queue.previous;
             if (this.queue.length > 0) {
@@ -208,6 +219,8 @@ class Player {
                 if (!nextTrack && referenceTrack) {
                     nextTrack = await this._findNextAutoplayTrack(referenceTrack);
                 }
+
+                if (this._destroyed || this._isStopping || !this.connection) return;
 
                 if (nextTrack) {
                     console.log(`[Player] Autoplay playing next: "${nextTrack.title}" (${nextTrack.uri})`);
@@ -238,7 +251,7 @@ class Player {
     }
 
     async play() {
-        if (this.playing || this._starting || this._advancing) return;
+        if (this._destroyed || this._isStopping || !this.connection || this.playing || this._starting || this._advancing) return;
         await this._advanceQueue();
     }
 
@@ -269,6 +282,7 @@ class Player {
     }
 
     async playTrack(track) {
+        if (this._destroyed || this._isStopping || !this.connection) return;
         const token = ++this._playToken;
         this._starting = true;
         try {
@@ -291,9 +305,11 @@ class Player {
                 }
             }
 
-            if (this.connection && this.connection.state.status !== VoiceConnectionStatus.Ready) {
+            if (!this.connection) return;
+
+            if (this.connection.state.status !== VoiceConnectionStatus.Ready) {
                 await entersState(this.connection, VoiceConnectionStatus.Ready, 15_000);
-                if (token !== this._playToken) return;
+                if (this._destroyed || this._isStopping || token !== this._playToken || !this.connection) return;
             }
 
             const streamPrepStart = Date.now();
@@ -304,16 +320,18 @@ class Player {
                 this.currentProcess = null;
             }
 
+            if (this._destroyed || this._isStopping || token !== this._playToken || !this.connection) return;
+
             // Direct real-time streaming with early process tracker
             const stream = await CacheManager.createTrackStream(track, 0, this.volume, (proc) => {
-                if (token !== this._playToken) {
+                if (this._destroyed || this._isStopping || token !== this._playToken || !this.connection) {
                     try { proc.kill(); } catch {}
                     return;
                 }
                 this.currentProcess = proc;
             });
 
-            if (token !== this._playToken) {
+            if (this._destroyed || this._isStopping || token !== this._playToken || !this.connection) {
                 if (stream && stream.kill) {
                     try { stream.kill(); } catch {}
                 }
@@ -331,14 +349,14 @@ class Player {
             this._preCacheNextTrack();
             this._scheduleAutoplayPreload(track);
         } catch (error) {
-            if (token !== this._playToken) return;
+            if (this._destroyed || token !== this._playToken) return;
             console.error(`Failed to play track ${track.title}:`, error.message);
             this.manager.emit('playerException', this, track, error);
             this.playing = false;
-            this.audioPlayer.stop();
+            try { this.audioPlayer.stop(); } catch {}
         } finally {
             this._starting = false;
-            if (token !== this._playToken && this.audioPlayer.state.status === AudioPlayerStatus.Idle && this.queue.length > 0) {
+            if (!this._destroyed && !this._isStopping && token !== this._playToken && this.audioPlayer.state.status === AudioPlayerStatus.Idle && this.queue.length > 0) {
                 this._advanceQueue().catch(() => {});
             }
         }
@@ -362,16 +380,21 @@ class Player {
     }
 
     skip() {
+        if (this._destroyed || !this.connection) return;
         this._isSkipping = true;
         this._playToken++;
         if (this.currentProcess) {
             try { this.currentProcess.kill(); } catch {}
             this.currentProcess = null;
         }
-        this.audioPlayer.stop(true);
+        try {
+            this.audioPlayer.stop(true);
+        } catch {}
     }
 
     stop() {
+        if (this._destroyed) return;
+        this._isStopping = true;
         if (this._preCacheTimer) {
             clearTimeout(this._preCacheTimer);
             this._preCacheTimer = null;
@@ -383,12 +406,22 @@ class Player {
         this._preloadedAutoplayTrack = null;
         this._isSkipping = false;
         this._playToken++;
+        this.playing = false;
+        this.paused = false;
         if (this.currentProcess) {
             try { this.currentProcess.kill(); } catch {}
             this.currentProcess = null;
         }
         this.queue.clear();
-        this.audioPlayer.stop(true);
+        this.queue.current = null;
+        try {
+            this.audioPlayer.stop(true);
+        } catch {}
+        setTimeout(() => {
+            if (!this._destroyed) {
+                this._isStopping = false;
+            }
+        }, 500);
     }
 
     setVolume(volume) {
@@ -427,14 +460,15 @@ class Player {
             this._autoplayPreloadTimer = null;
         }
 
-        if (!this.autoplay || this.queue.length > 0) return;
+        if (this._destroyed || this._isStopping || !this.connection || !this.autoplay || this.queue.length > 0) return;
 
         // Pre-fetch next autoplay song in background 3 seconds after playback starts
         this._autoplayPreloadTimer = setTimeout(async () => {
-            if (!this.autoplay || this.queue.length > 0 || this._preloadedAutoplayTrack) return;
+            if (this._destroyed || this._isStopping || !this.connection || !this.autoplay || this.queue.length > 0 || this._preloadedAutoplayTrack) return;
             try {
                 console.log(`[Player:Autoplay] Pre-fetching next song in background for: "${currentTrack.title}"`);
                 const track = await this._findNextAutoplayTrack(currentTrack);
+                if (this._destroyed || this._isStopping || !this.connection) return;
                 if (track && this.autoplay && this.queue.length === 0) {
                     this._preloadedAutoplayTrack = track;
                     console.log(`[Player:Autoplay] Pre-cached candidate ready: "${track.title}" (${track.uri})`);
@@ -598,6 +632,7 @@ class Player {
     }
 
     _preCacheNextTrack() {
+        if (this._destroyed || this._isStopping || !this.connection) return;
         const streamMode = (process.env.STREAM_MODE || 'auto').toLowerCase().trim();
         if (streamMode === 'pipe') return;
 
@@ -608,6 +643,7 @@ class Player {
 
         // Delay pre-caching by 8s so current track playback stabilizes first
         this._preCacheTimer = setTimeout(() => {
+            if (this._destroyed || this._isStopping || !this.connection) return;
             // Pre-cache only if RAM usage is healthy (<150MB) and player is still active
             const mem = process.memoryUsage();
             if (mem.rss > 150 * 1024 * 1024) return;
@@ -623,20 +659,57 @@ class Player {
     }
 
     destroy() {
-        this.stop();
+        if (this._destroyed) return;
+        this._destroyed = true;
+        this._isStopping = true;
+        this.playing = false;
+        this.paused = false;
+        this._playToken++;
+
+        if (this._preCacheTimer) {
+            clearTimeout(this._preCacheTimer);
+            this._preCacheTimer = null;
+        }
+        if (this._autoplayPreloadTimer) {
+            clearTimeout(this._autoplayPreloadTimer);
+            this._autoplayPreloadTimer = null;
+        }
+        this._preloadedAutoplayTrack = null;
+        this._isSkipping = false;
+
+        this.queue.clear();
+        this.queue.current = null;
+        this.queue.previous = null;
+
+        if (this.currentProcess) {
+            try { this.currentProcess.kill(); } catch {}
+            this.currentProcess = null;
+        }
+
+        if (this.audioPlayer) {
+            try {
+                this.audioPlayer.removeAllListeners();
+                this.audioPlayer.stop(true);
+            } catch {}
+        }
+
         if (this.nowPlayingMessage) {
             try { this.nowPlayingMessage.delete().catch(() => {}); } catch {}
             this.nowPlayingMessage = null;
         }
+
         if (this.connection) {
             try {
+                this.connection.removeAllListeners();
                 this.connection.destroy();
             } catch {}
             this.connection = null;
         }
+
         if (this.manager && this.manager.players) {
             this.manager.players.delete(this.guildId);
         }
+
         if (global.gc) global.gc();
     }
 }

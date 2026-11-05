@@ -57,6 +57,7 @@ const kazagumo = new QueueManager(client);
 
 // Event เมื่อเริ่มเล่นเพลง
 kazagumo.on("playerStart", async (player, track) => {
+    if (!player || player._destroyed || !player.connection) return;
     console.log(`[Player] 🎧 Now Playing: "${track?.title}" | Real Source: ${track?.realSource || (track?.uri?.includes('soundcloud.com') ? 'SoundCloud' : 'YouTube')}`);
     if (!player.textId) return;
     const channel = client.channels.cache.get(player.textId);
@@ -438,6 +439,19 @@ client.on('interactionCreate', async interaction => {
 
 // Auto-disconnect when no non-bot members remain in the bot's voice channel
 client.on('voiceStateUpdate', (oldState, newState) => {
+    // If the bot itself was disconnected from voice channel
+    if (oldState.id === client.user.id && !newState.channelId) {
+        const guild = oldState.guild;
+        if (guild) {
+            const player = kazagumo.getPlayer(guild.id);
+            if (player) {
+                console.log(`[Player] Bot disconnected from voice channel in ${guild.name} (${guild.id}), destroying player.`);
+                player.destroy();
+            }
+        }
+        return;
+    }
+
     if (oldState.id === client.user.id || newState.id === client.user.id) return;
 
     const guild = oldState.guild || newState.guild;
@@ -451,7 +465,8 @@ client.on('voiceStateUpdate', (oldState, newState) => {
     const channel = guild.channels.cache.get(player.voiceId);
     if (!channel) return;
 
-    const nonBotMembers = channel.members.filter(m => !m.user.bot);
+    // Filter out bots and member who left
+    const nonBotMembers = channel.members.filter(m => !m.user.bot && (newState.channelId === player.voiceId || m.id !== oldState.id));
     if (nonBotMembers.size === 0) {
         console.log(`[Player] No members left in voice channel, disconnecting from ${guild.name} (${guild.id})`);
         player.destroy();

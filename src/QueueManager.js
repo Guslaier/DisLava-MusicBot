@@ -44,12 +44,18 @@ class QueueManager extends EventEmitter {
     create(options) {
         let player = this.players.get(options.guildId);
         if (player) {
-            if (options.textId) player.textId = options.textId;
-            if (options.voiceId && player.voiceId !== options.voiceId) {
-                player.voiceId = options.voiceId;
-                player._setupVoiceConnection(options);
+            if (player._destroyed || !player.connection) {
+                try { player.destroy(); } catch {}
+                this.players.delete(options.guildId);
+                player = null;
+            } else {
+                if (options.textId) player.textId = options.textId;
+                if (options.voiceId && player.voiceId !== options.voiceId) {
+                    player.voiceId = options.voiceId;
+                    player._setupVoiceConnection(options);
+                }
+                return player;
             }
-            return player;
         }
 
         const initialVolume = (typeof options.volume === 'number' && options.volume !== 100)
@@ -62,7 +68,13 @@ class QueueManager extends EventEmitter {
     }
 
     getPlayer(guildId) {
-        return this.players.get(guildId) || null;
+        const player = this.players.get(guildId);
+        if (player && (player._destroyed || !player.connection)) {
+            try { player.destroy(); } catch {}
+            this.players.delete(guildId);
+            return null;
+        }
+        return player || null;
     }
 
     /**
